@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function me() { return request.auth.token.email.lower(); }
+    // EDIT: your owner email(s) - same as OWNER_EMAILS in firebase-config.js
+    function isOwner() { return signedIn() && me() in ['owner@example.com']; }
+    function myRole() {
+      return !signedIn() ? 'none'
+        : isOwner() ? 'admin'
+        : exists(/databases/$(database)/documents/roles/$(me())) ? get(/databases/$(database)/documents/roles/$(me())).data.role
+        : 'none';
+    }
+    function staff() { return myRole() in ['admin','reception','technician','manager','cashier']; }
+    function active() { return staff() || myRole() == 'guest'; }
+    function touches(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(keys); }
+
+    // ---------- roles: admins manage, everyone can read their own ----------
+    match /roles/{docId} {
+      allow get: if signedIn() && (docId == me() || myRole() == 'admin');
+      allow list: if myRole() == 'admin';
+      allow write: if myRole() == 'admin';
+    }
+
+    // ---------- cases ----------
+    match /cases/{caseId} {
+      allow read: if active();
+      allow create: if myRole() in ['admin','reception']
+        && request.resource.data.warranty == 'in'
+        && request.resource.data.status == 'waiting'
+        && request.resource.data.loc == 'reception';
+      allow update: if staff()
+        && (!touches(['warranty','warrantyLog']) || myRole() in ['admin','technician'])
+        && (!touches(['photo','photoDone','repairInfo','parts','cost','tech','startedAt','repairedAt','outcome']) || myRole() in ['admin','technician'])
+        && (!touches(['charge']) || myRole() in ['admin','manager','cashier','technician'])
+        && (!touches(['loc','track','returnDate']) || myRole() in ['admin','reception','technician'])
+        && (!touches(['status']) || myRole() in ['admin','reception','technician','manager']);
+      allow delete: if myRole() == 'admin';
+    }
+
+    // ---------- cash payments ----------
+    match /payments/{paymentId} {
+      allow read: if myRole() in ['admin','manager','cashier','technician','reception'];
+      allow create: if myRole() in ['admin','manager','cashier'];
+      allow update: if false;
+      allow delete: if myRole() == 'admin';
+    }
+
+    // ---------- audit log: append-only, admins read ----------
+    match /audit/{entryId} {
+      allow read: if myRole() == 'admin';
+      allow create: if staff() && request.resource.data.uid == me();
+      allow update, delete: if false;
+    }
+  }
+}

@@ -1,0 +1,493 @@
+let photo2=null,wf='',pays=[],acctKey='',auditUn=null,db,user,uid=null,owner=false,raw=[],cases=[],roles={},cur=null,photo=null,mo=new Date().toISOString().slice(0,7);
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today=()=>new Date().toISOString().slice(0,10);
+const S={waiting:'Waiting for repair',repairing:'In repair',repaired:'Ready for pickup',swap_todo:'Swap: to send',swap_sent:'Swap: at factory',swap_done:'Swapped: ready for pickup',delivered:'Delivered',archived:'Archived'};
+const LOC={reception:'At reception',to_ws:'In transit → workshop',workshop:'At workshop',to_rec:'In transit → reception',customer:'With customer'};
+const lp=c=>`<span class="pill ${['to_ws','to_rec'].includes(c.loc)?'lt':c.loc==='workshop'?'lw':''}">📍 <span>${LOC[c.loc]||''}</span></span>`;
+const EV={received:'Received at reception',sent_ws:'Sent to workshop',recv_ws:'Received in workshop',started:'Repair started',repaired:'Repaired',unrepairable:'Declared unrepairable',handed_rec:'Handed to reception',recv_rec:'Received back at reception',returned:'Returned to customer'};
+const me=()=>(roles[uid]&&roles[uid].label)||(owner?'owner':String(uid||'').slice(-6)),mk=k=>({k,at:Date.now(),by:me(),role:role()});
+const trk=c=>{const t=c.track||[];return `<div class="box hist"><b>📍 <span>Tracking</span></b>${t.length?t.map(e=>`<div>✓ <span>${EV[e.k]||esc(e.k)}</span> · ${esc(new Date(e.at).toLocaleString())} · ${esc(e.by)} (<span>${esc(e.role)}</span>)</div>`).join(''):'<div><span>No tracking events yet (older case).</span></div>'}</div>`};
+const wp=c=>c.warranty==='in'?'<span class="pill" style="color:var(--ok);border-color:var(--ok)">Warranty</span>':c.warranty==='out'?'<span class="pill" style="color:var(--wr);border-color:var(--wr)">Out of warranty</span>':'<span class="pill">Warranty ?</span>';
+const role=()=>owner?'admin':(roles[uid]&&roles[uid].role)||'guest';
+const can={edit:()=>['admin','technician'].includes(role()),arch:()=>['admin','manager'].includes(role()),adm:()=>role()==='admin',swap:()=>['admin','technician','manager'].includes(role()),pay:()=>['admin','manager','cashier'].includes(role()),money:()=>['admin','manager','cashier','technician','reception'].includes(role()),blocked:()=>['blocked','none'].includes(role()),rec:()=>['admin','reception'].includes(role()),ws:()=>['admin','technician'].includes(role())};
+const money=n=>(Math.round((+n||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const paidOf=id=>pays.filter(p=>p.caseId===id).reduce((a,p)=>a+p.amount,0),due=c=>c.warranty==='out'?Math.max(0,Math.round(((+c.charge||0)-paidOf(c.id))*100)/100):0;
+const pst=c=>{const ch=+c.charge||0,p=paidOf(c.id);return !ch?'nocharge':p>=ch?'paid':p>0?'partial':'unpaid'},PL={paid:'Paid',partial:'Partial',unpaid:'On hold',nocharge:'No price'};
+const pp=c=>can.money()&&c.warranty==='out'?`<span class="pill ${pst(c)==='nocharge'?'':pst(c)}">${PL[pst(c)]}</span>`:'';
+const ck=c=>(c.phone||'').replace(/\D/g,'')||('n:'+(c.customer||'').toLowerCase().trim());
+const norm=c=>{c={...c};if(c.status==='open')c.status=c.startedAt?'repairing':'waiting';if(c.status==='closed')c.status='delivered';
+ if(['delivered','archived'].includes(c.status)){c.outcome=c.outcome||'success';c.repairedAt=c.repairedAt||c.returnDate||c.openedAt}if(!c.loc)c.loc=({waiting:'reception',repairing:'workshop',delivered:'customer',archived:'customer'})[c.status]||'reception';return c};
+const dd=(a,b)=>a&&b?Math.max(0,(new Date(b)-new Date(a))/864e5):null,age=a=>dd(a,today());
+const avg=a=>{a=a.filter(x=>x!=null);return a.length?a.reduce((s,x)=>s+x,0)/a.length:null},f1=x=>x==null?'—':Math.round(x*10)/10+' d';
+function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',2800)}
+async function init(){
+ try{db=await claude.use('db');user=await claude.use('user')}catch(e){}
+ if(!db){$('#off').style.display='block';head();dash();return}
+ try{uid=user?await user.id():null;owner=user?await user.isOwner():false}catch(e){}
+ db.collection('roles').onSnapshot(s=>{roles={};s.docs.forEach(d=>roles[d.id]=d.data());head()},()=>{});
+ db.collection('cases').onSnapshot(s=>{raw=s.docs.map(d=>({id:d.id,...d.data()}));cases=raw.map(norm);if(cur){const n=cases.find(x=>x.id===cur.id);if(n)cur=n}list();dash();swp();pay()},e=>toast('Database error: '+e.code));
+ db.collection('payments').onSnapshot(s=>{pays=s.docs.map(d=>({id:d.id,...d.data()}));list();dash();pay()},()=>{});
+ setTimeout(()=>{if(role()!=='guest'&&!can.blocked())audit('opened app')},2500);
+ head();
+}
+function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.pay()?'':'none';$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay()}
+function tab(t){[['D','dash'],['C','cases'],['S','swap'],['P','pay']].forEach(([k,i])=>{$('#'+i).style.display=k===t?'':'none';$('#t'+k).className=k===t?'on':''})}
+$('#tD').onclick=()=>tab('D');$('#tC').onclick=()=>tab('C');$('#wt').onclick=e=>{const b=e.target.closest('button');if(!b)return;wf=b.dataset.w;[...$('#wt').children].forEach(x=>x.className=x===b?'on':'');list()};$('#tS').onclick=()=>tab('S');$('#tP').onclick=()=>tab('P');$('#tk').addEventListener('input',e=>{$('#q').value=e.target.value;tab('C');list()});
+function list(){
+ const q=$('#q').value.toLowerCase().trim(),st=$('#st').value,a=$('#d1').value,b=$('#d2').value;
+ const r=cases.filter(c=>(!wf||(c.warranty||'')===wf)&&(!$('#lc').value||c.loc===$('#lc').value)&&(!st||c.status===st)&&(!a||c.openedAt>=a)&&(!b||c.openedAt<=b)&&(!q||[c.caseNo,c.customer,c.email,c.phone,c.imei,c.model,c.problem].join(' ').toLowerCase().includes(q))).sort((x,y)=>(y.openedAt+y.caseNo).localeCompare(x.openedAt+x.caseNo));
+ $('#list').innerHTML=r.map(c=>`<div class="c" data-id="${esc(c.id)}">${c.photo?`<img class="th" src="${c.photo}">`:'<div class="th">no photo</div>'}<div class="m"><div><b>${esc(c.customer)}</b> · ${esc(c.model)}</div><div class="mu">${esc(c.caseNo)} · <span>IMEI</span> ${esc(c.imei||'—')} · ${esc(c.openedAt)}</div><div class="mu">${esc(c.problem)}</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${wp(c)}${pp(c)}<span class="pill ${c.status}">${S[c.status]}</span>${lp(c)}</div></div>`).join('');
+ {const b=$('#wt').children;b[1].textContent='Under warranty ('+cases.filter(c=>c.warranty==='in').length+')';b[2].textContent='Out of warranty ('+cases.filter(c=>c.warranty==='out').length+')'}
+ $('#cnt').textContent=db?r.length+' of '+cases.length+' cases':'';
+}
+['q','st','lc','d1','d2'].forEach(i=>$('#'+i).addEventListener('input',list));
+$('#list').addEventListener('click',e=>{const c=e.target.closest('.c');if(c)detail(c.dataset.id)});
+function dash(){
+ const n=s=>cases.filter(c=>c.status===s).length,inM=cases.filter(c=>(c.openedAt||'').startsWith(mo)),done=inM.filter(c=>c.repairedAt),ok=done.filter(c=>c.outcome==='success'),dl=inM.filter(c=>c.returnDate);
+ const rt=avg(done.map(c=>dd(c.startedAt,c.repairedAt))),wt=avg(inM.map(c=>dd(c.openedAt,c.startedAt))),tt=avg(dl.map(c=>dd(c.openedAt,c.returnDate))),pd=avg(dl.map(c=>dd(c.repairedAt,c.returnDate)));
+ const late=cases.filter(c=>c.status==='waiting'&&age(c.openedAt)>3),stuck=cases.filter(c=>c.status==='repaired'&&age(c.repairedAt)>3);
+ const act=cases.filter(c=>!['delivered','archived'].includes(c.status)),miss=cases.filter(c=>['to_ws','to_rec'].includes(c.loc)&&c.track&&c.track.length&&(Date.now()-c.track[c.track.length-1].at)/36e5>24);const [y,m]=mo.split('-').map(Number),ms=[...Array(6)].map((_,i)=>new Date(Date.UTC(y,m-1-(5-i),1)).toISOString().slice(0,7)),cn=ms.map(k=>cases.filter(c=>(c.openedAt||'').startsWith(k)).length),mx=Math.max(1,...cn);
+ const T={};done.forEach(c=>{const k=c.tech||'—';(T[k]=T[k]||[]).push(c)});
+ const tot=done.length?Math.round(ok.length/done.length*100)+'%':'—';
+ $('#dash').innerHTML=`<div class="kp"><div class="k" data-go="waiting"><b style="color:var(--wr)">${n('waiting')}</b><span>Received, waiting for repair</span></div><div class="k" data-go="repairing"><b style="color:var(--ac)">${n('repairing')}</b><span>Still in repair</span></div><div class="k" data-go="repaired"><b style="color:var(--ok)">${n('repaired')}</b><span>Repaired, not yet received by customer</span></div></div>
+<div class="box" style="margin-top:0"><h2>📍 <span>Where are the items?</span></h2><div class="kp" style="margin:0">${['reception','to_ws','workshop','to_rec'].map(k=>`<div class="k" data-loc="${k}"><b>${act.filter(c=>c.loc===k).length}</b><span>${LOC[k]}</span></div>`).join('')}</div>${miss.length?`<div class="mu" style="margin-top:8px"><b class="slow">⚠ <span>Possibly missing (not acknowledged for over 24 h):</span></b> ${miss.map(c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join(' · ')}</div>`:`<div class="mu" style="margin-top:8px">✓ <span>No unacknowledged handovers over 24 h</span></div>`}</div>
+<div class="top"><h2 style="margin:0">Month</h2><input type="month" id="mo" value="${mo}" style="width:auto"></div>
+<div class="kp"><div class="k"><b>${inM.length}</b><span>Phones received</span></div><div class="k"><b>${inM.filter(c=>c.swapAt).length}</b><span>Sent to swap (${inM.length?Math.round(inM.filter(c=>c.swapAt).length/inM.length*100):0}%)</span></div><div class="k"><b>${inM.filter(c=>c.warranty==='in').length} / ${inM.filter(c=>c.warranty==='out').length}</b><span>Under / out of warranty received</span></div>${can.pay()?`<div class="k"><b>${money(pays.filter(p=>(p.date||'').startsWith(mo)).reduce((a,p)=>a+p.amount,0))}</b><span>Cash received this month</span></div>`:''}<div class="k"><b>${tot}</b><span>Repair success rate (${ok.length}/${done.length} finished)</span></div><div class="k"><b>${f1(rt)}</b><span>Avg repair time (start → repaired)</span></div><div class="k"><b>${f1(wt)}</b><span>Avg wait before repair starts</span></div><div class="k"><b>${f1(tt)}</b><span>Avg turnaround (received → returned)</span></div><div class="k"><b>${f1(pd)}</b><span>Avg days waiting for pickup</span></div></div>
+<div class="box"><h2>Phones received per month</h2><div class="bars">${ms.map((k,i)=>`<div><span>${cn[i]}</span><i style="height:${cn[i]/mx*80}%"></i>${k.slice(2)}</div>`).join('')}</div></div>
+<div class="box"><h2>Needs attention</h2><div class="mu">Waiting over 3 days to start: <b class="slow">${late.length}</b>${late.slice(0,5).map(c=>` · <a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join('')}</div><div class="mu" style="margin-top:4px">Ready over 3 days, not picked up: <b class="slow">${stuck.length}</b>${stuck.slice(0,5).map(c=>` · <a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join('')}</div></div>
+<div class="box"><h2>By technician (finished this month)</h2><div class="sc"><table><tr><th>Technician</th><th>Repairs</th><th>Success</th><th>Avg repair</th></tr>${Object.entries(T).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.length}</td><td>${Math.round(v.filter(c=>c.outcome==='success').length/v.length*100)}%</td><td>${f1(avg(v.map(c=>dd(c.startedAt,c.repairedAt))))}</td></tr>`).join('')||'<tr><td colspan=4 class="mu">No finished repairs</td></tr>'}</table></div></div>
+<div class="box"><h2>Time per repair</h2><div class="sc"><table><tr><th>Case</th><th>Device</th><th>Result</th><th>Wait</th><th>Repair</th><th>Total</th></tr>${done.sort((a,b)=>b.repairedAt.localeCompare(a.repairedAt)).slice(0,20).map(c=>{const r=dd(c.startedAt,c.repairedAt);return `<tr><td><a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a></td><td>${esc(c.model)}</td><td>${c.outcome==='success'?'✓ repaired':'✗ unrepairable'}</td><td>${f1(dd(c.openedAt,c.startedAt))}</td><td class="${rt&&r>rt*1.5?'slow':''}">${f1(r)}</td><td>${f1(dd(c.openedAt,c.returnDate||c.repairedAt))}</td></tr>`}).join('')||'<tr><td colspan=6 class="mu">No finished repairs</td></tr>'}</table></div><div class="mu" style="margin-top:6px">Red = over 1.5× the month's average. Older cases without a start date show —.</div></div>`;
+}
+$('#dash').addEventListener('input',e=>{if(e.target.id==='mo'&&e.target.value){mo=e.target.value;dash()}});
+$('#dash').addEventListener('click',e=>{const k=e.target.closest('[data-go]'),a=e.target.closest('a[data-id]');if(a){e.preventDefault();detail(a.dataset.id)}else if(k){$('#st').value=k.dataset.go;tab('C');list()}else{const l=e.target.closest('[data-loc]');if(l){$('#lc').value=l.dataset.loc;$('#st').value='';tab('C');list()}}});
+function open_(h){$('#md').innerHTML=h;$('#ov').classList.add('on')}
+function shut(){if(auditUn){auditUn();auditUn=null}$('#ov').classList.remove('on');cur=null;photo=null;photo2=null}
+$('#new').onclick=()=>{photo=null;open_(`<div class="top"><h1>New case</h1><span class="sp"></span><button onclick="shut()">Cancel</button></div>
+<label>Customer name *</label><input id="f_c"><label>Customer email</label><input id="f_e" type="email"><div class="g2"><div><label>Customer phone</label><input id="f_p" type="tel"></div><div><label>Date received</label><input id="f_d" type="date" value="${today()}"></div></div>
+<div class="g2"><div><label>Type</label><select id="f_t"><option value="Phone">Phone</option><option value="Tablet">Tablet</option></select></div><div><label>Brand / model *</label><input id="f_m"></div></div>
+<div class="mu" style="margin-top:8px">🛡 <span>Under warranty by default; the repair team can change it.</span></div>
+<label>IMEI / serial</label><input id="f_i" inputmode="numeric"><label>Problem *</label><textarea id="f_pr"></textarea>
+<label>Photo of device (required)</label>${pick('pv')}
+<div class="row"><button class="pri" onclick="create()">Open case file</button></div>`);
+};
+const pick=id=>`<div class="row" style="margin-top:6px"><label class="btn pri">📷 <span>Take photo</span><input class="hid" type="file" accept="image/*" capture="environment" data-pick="${id}"></label><label class="btn">🖼 <span>Choose from gallery</span><input class="hid" type="file" accept="image/*" data-pick="${id}"></label></div><img id="${id}" class="ph" style="display:none;margin-top:8px">`;
+document.addEventListener('change',async e=>{const t=e.target;if(!t.dataset||!t.dataset.pick)return;const f=t.files&&t.files[0];if(!f)return;try{const d=await shrink(f),id=t.dataset.pick;if(id==='pv')photo=d;else photo2=d;const im=$('#'+id);im.src=d;im.style.display='block'}catch(x){toast('Could not read the photo')}t.value=''});
+function shrink(f){return new Promise((res,rej)=>{const i=new Image(),u=URL.createObjectURL(f);i.onload=()=>{const s=Math.min(1,720/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*s;c.height=i.height*s;c.getContext('2d').drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',.6))};i.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('img'))};i.src=u})}
+const val=id=>{const e=$('#'+id);return e?e.value.trim():''};
+async function create(){
+ const c=val('f_c'),m=val('f_m'),p=val('f_pr');if(!can.rec())return toast('Not allowed');if(!c||!m||!p)return toast('Name, model and problem are required');if(!photo)return toast('Reception photo is required');
+ const no='R'+val('f_d').replace(/-/g,'').slice(2)+'-'+Math.floor(100+Math.random()*900);
+ const o={caseNo:no,customer:c,phone:val('f_p'),type:$('#f_t').value,warranty:'in',warrantyLog:[],model:m,imei:val('f_i'),problem:p,openedAt:val('f_d')||today(),status:'waiting',loc:'reception',email:val('f_e'),track:[mk('received')],photo:photo,photoDone:'',repairInfo:'',parts:'',cost:'',tech:'',startedAt:'',repairedAt:'',outcome:'',returnDate:'',history:[`${today()} · ${role()} · case opened`]};
+ try{await db.doc('cases/'+no.toLowerCase()).set(o);audit('case opened',no);shut();toast('Case '+no+' opened')}catch(e){toast('Could not save: '+(e.code||e.message))}
+}
+function detail(id){
+ const c=cases.find(x=>x.id===id);if(!c)return;cur=c;const live=['waiting','repairing','repaired','swap_todo','swap_sent','swap_done'].includes(c.status),ed=can.edit()&&live,ro=ed?'':'disabled',s=c.status,sw=can.swap(),pb=payBox(c),loc=c.loc;
+ open_(`<div class="top"><h1>${esc(c.caseNo)}</h1><span class="pill ${s}">${S[s]}</span>${wp(c)}${lp(c)}<span class="sp"></span><button onclick="shut()">Close ✕</button></div>
+${c.photo?`<div class="mu">📷 <span>Reception photo</span></div><img class="ph" src="${c.photo}">`:''}${c.photoDone?`<div class="mu" style="margin-top:8px">📷 <span>After-repair photo</span></div><img class="ph" src="${c.photoDone}">`:''}
+<div class="box"><b>${esc(c.customer)}</b> <span class="mu">${esc(c.phone)}${c.email?' · '+esc(c.email):''}</span><div>${esc(c.type)} · ${esc(c.model)}</div><div class="mu"><span>IMEI / serial:</span> ${esc(c.imei||'—')} · <span>Received</span> ${esc(c.openedAt)}</div><div style="margin-top:8px"><span class="mu">Problem:</span> ${esc(c.problem)}</div>
+<div class="mu" style="margin-top:8px"><span>Started</span> ${esc(c.startedAt||'—')} · <span>Repaired</span> ${esc(c.repairedAt||'—')}${c.outcome?` (<span>${c.outcome==='success'?'success':'unrepairable'}</span>)`:''} · <span>Returned</span> ${esc(c.returnDate||'—')}</div></div>
+${c.swapAt?`<div class="box"><h2>🔄 Swap case</h2><div class="g2"><div><b>Old phone</b><div>${esc(c.model)}</div><div class="mu">IMEI ${esc(c.imei||'—')}</div></div><div><b>New phone</b><div>${esc(c.newModel||'—')}</div><div class="mu">IMEI ${esc(c.newImei||'—')}</div></div></div><div class="mu" style="margin-top:8px">${c.swapReason?'<span>Reason:</span> '+esc(c.swapReason)+' · ':''}<span>Assigned</span> ${esc(c.swapAt)} · <span>Sent</span> ${esc(c.sentAt||'—')}${c.swapRef?' ('+esc(c.swapRef)+')':''} · <span>Swapped</span> ${esc(c.swappedAt||'—')}</div></div>`:''}
+${trk(c)}${wbox(c)}${pb}<div class="box"><label style="margin-top:0">Repair information</label><textarea id="e_r" ${ro}>${esc(c.repairInfo)}</textarea>
+<div class="g2"><div><label>Parts used</label><input id="e_p" value="${esc(c.parts)}" ${ro}></div><div><label>Cost</label><input id="e_c" value="${esc(c.cost)}" ${ro}></div></div>
+<label>Technician</label><input id="e_t" value="${esc(c.tech)}" ${ro}>
+${s==='repairing'&&ed?`<label>Photo after repair (required to finish)</label>${pick('pv2')}`:''}
+${(s==='repaired'||s==='swap_done')&&can.rec()&&(s==='swap_done'||loc==='reception')?`<label>Return date to customer</label><input id="e_d" type="date" value="${today()}">`:''}
+${(s==='waiting'||s==='repairing')&&sw?`<label>Swap reason (to move to swap list)</label><input id="e_sr">`:''}
+${s==='swap_todo'&&sw?`<label>Factory shipment / RMA ref</label><input id="e_ref">`:''}
+${(s==='swap_sent'||s==='swap_done')&&sw?`<div class="g2"><div><label>New phone model</label><input id="n_m" value="${esc(c.newModel)}"></div><div><label>New phone IMEI</label><input id="n_i" value="${esc(c.newImei)}"></div></div>`:''}</div>
+<div class="row">${ed?`<button onclick="run({},'notes updated',1)">Save notes</button>`:''}
+${s==='waiting'&&loc==='reception'&&can.rec()?`<button class="pri" onclick="run({loc:'to_ws',__ev:'sent_ws'},'sent to workshop')">Send to workshop</button>`:''}
+${loc==='to_ws'&&can.ws()?`<button class="pri" onclick="run({loc:'workshop',__ev:'recv_ws'},'received in workshop')">Confirm received in workshop</button>`:''}
+${s==='waiting'&&loc==='workshop'&&ed?`<button class="pri" onclick="run({status:'repairing',startedAt:today(),__ev:'started'},'repair started')">Start repair</button>`:''}
+${s==='repaired'&&loc==='workshop'&&can.ws()?`<button class="pri" onclick="run({loc:'to_rec',__ev:'handed_rec'},'handed to reception')">Hand over to reception</button>`:''}
+${loc==='to_rec'&&can.rec()?`<button class="pri" onclick="run({loc:'reception',__ev:'recv_rec'},'received at reception')">Confirm received at reception</button>`:''}
+${s==='repairing'&&ed?`<button class="pri" onclick="finish('success')">Mark repaired ✓</button><button class="dng" onclick="finish('unrepairable')">Unrepairable</button>`:''}
+${s==='repaired'&&loc==='reception'&&can.rec()?`<button class="pri" onclick="deliver()">Return to customer</button>`:''}
+${s==='delivered'&&can.arch()?`<button class="pri" onclick="run({status:'archived'},'archived')">Archive</button>`:''}
+${s==='archived'&&can.arch()?`<button onclick="run({status:'delivered'},'unarchived')">Unarchive</button>`:''}
+${['repaired','delivered','archived'].includes(s)&&can.edit()&&!c.swapAt?`<button onclick="run({status:'repairing',loc:'workshop',repairedAt:'',returnDate:'',outcome:''},'reopened')">Reopen</button>`:''}
+${(s==='waiting'||s==='repairing')&&sw?`<button class="dng" onclick="run({status:'swap_todo',swapAt:today(),swapReason:val('e_sr'),repairedAt:'',outcome:''},'moved to swap list')">Move to swap list</button>`:''}
+${s==='swap_todo'&&sw?`<button class="pri" onclick="run({status:'swap_sent',sentAt:today(),swapRef:val('e_ref')},'sent to factory')">Mark sent to factory</button><button onclick="run({status:'waiting',swapAt:'',swapReason:''},'removed from swap list')">Back to repair</button>`:''}
+${s==='swap_sent'&&sw?`<button class="pri" onclick="swapped()">Replacement received</button>`:''}
+${s==='swap_done'&&sw?`<button onclick="run({newModel:val('n_m'),newImei:val('n_i')},'new phone info updated',1)">Save new phone</button>`:''}
+${s==='swap_done'&&can.rec()?`<button class="pri" onclick="deliver()">Return to customer</button>`:''}
+${can.adm()?`<button class="dng" onclick="del()">Delete</button>`:''}</div>
+<div class="box hist"><b>History</b>${(c.history||[]).map(h=>`<div>${esc(h)}</div>`).join('')}</div>`);
+}
+async function finish(o){const p=photo2||cur.photoDone;if(!p)return toast('Upload the after-repair photo first');run({status:'repaired',outcome:o,repairedAt:today(),photoDone:p,__ev:o==='success'?'repaired':'unrepairable'},o==='success'?'repaired':'unrepairable')}
+
+async function deliver(){const d=val('e_d');if(!d)return toast('Enter the return date');const c=cur,b=can.money()?due(c):0;
+ if(b>0&&!(await ask('This customer still owes '+money(b)+'. Return the phone anyway? The balance stays on their account.')))return;
+ run({status:'delivered',returnDate:d,loc:'customer',__ev:'returned'},'returned to customer'+(b>0?' (balance '+money(b)+' unpaid)':''))}
+async function run(ex,t,stay){const c=cur,o={...ex};if(o.__ev){o.track=[...(c.track||[]),mk(o.__ev)];delete o.__ev}
+ if($('#e_r')&&!$('#e_r').disabled)Object.assign(o,{repairInfo:val('e_r'),parts:val('e_p'),cost:val('e_c'),tech:val('e_t')});
+ o.history=[...(c.history||[]),`${today()} · ${role()} · ${t}`];
+ try{await db.doc('cases/'+c.id).update(o);audit(t,c.caseNo);toast('Saved');if(!stay)shut();return true}catch(e){toast('Not allowed or failed: '+(e.code||e.message));return false}}
+function swapped(){const m=val('n_m'),i=val('n_i');if(!m)return toast('Enter the new phone model');run({status:'swap_done',swappedAt:today(),newModel:m,newImei:i},'replacement received')}
+const selSet=new Set(),tbl=(h,r)=>`<div class="sc"><table><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr>${r}</table></div>`;
+function swp(){
+ const td=cases.filter(c=>c.status==='swap_todo').sort((a,b)=>(a.swapAt||'').localeCompare(b.swapAt||'')),sn=cases.filter(c=>c.status==='swap_sent').sort((a,b)=>(a.sentAt||'').localeCompare(b.sentAt||'')),dn=cases.filter(c=>c.swappedAt).sort((a,b)=>b.swappedAt.localeCompare(a.swappedAt)).slice(0,40);
+ const all=cases.filter(c=>c.swappedAt),fa=avg(all.map(c=>dd(c.sentAt,c.swappedAt))),old=sn.length?Math.max(...sn.map(c=>age(c.sentAt)||0)):null,over=sn.filter(c=>age(c.sentAt)>14).length;
+ const L=c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`;
+ $('#swk').innerHTML=`<div class="kp"><div class="k"><b style="color:var(--wr)">${td.length}</b><span>Need to be sent to factory</span></div><div class="k"><b style="color:var(--ac)">${sn.length}</b><span>Sent, waiting for swap</span></div><div class="k"><b style="color:var(--ok)">${all.length}</b><span>Already swapped</span></div><div class="k"><b>${f1(fa)}</b><span>Avg time at factory</span></div><div class="k"><b class="${over?'slow':''}">${over}</b><span>At factory over 14 days${old!=null?' (oldest '+f1(old)+')':''}</span></div></div>`;
+ [...selSet].forEach(id=>{if(!td.find(c=>c.id===id))selSet.delete(id)});
+ $('#swt').innerHTML=td.length?tbl(['','Case','Customer','Device','IMEI','Reason','Waiting'],td.map(c=>`<tr><td><input type="checkbox" data-sel="${esc(c.id)}" ${selSet.has(c.id)?'checked':''} style="width:auto"></td><td>${L(c)}</td><td>${esc(c.customer)}</td><td>${esc(c.model)}</td><td>${esc(c.imei)}</td><td>${esc(c.swapReason)}</td><td>${f1(age(c.swapAt))}</td></tr>`).join('')):'<div class="mu">Nothing waiting to be sent.</div>';
+ $('#swa').innerHTML=sn.length?tbl(['Case','Customer','Device','IMEI','Sent','At factory','Ref'],sn.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.customer)}</td><td>${esc(c.model)}</td><td>${esc(c.imei)}</td><td>${esc(c.sentAt)}</td><td class="${age(c.sentAt)>14?'slow':''}">${f1(age(c.sentAt))}</td><td>${esc(c.swapRef)}</td></tr>`).join('')):'<div class="mu">No phones at the factory.</div>';
+ $('#swd').innerHTML=dn.length?tbl(['Case','Old phone','New phone','Swapped','At factory','Status'],dn.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.model)}<br><span class="mu">${esc(c.imei)}</span></td><td>${esc(c.newModel)}<br><span class="mu">${esc(c.newImei)}</span></td><td>${esc(c.swappedAt)}</td><td>${f1(dd(c.sentAt,c.swappedAt))}</td><td>${S[c.status]}</td></tr>`).join('')):'<div class="mu">No swaps completed yet.</div>';
+}
+$('#swap').addEventListener('click',e=>{const a=e.target.closest('a[data-id]');if(a){e.preventDefault();detail(a.dataset.id)}});
+$('#swap').addEventListener('change',e=>{const id=e.target.dataset&&e.target.dataset.sel;if(id)e.target.checked?selSet.add(id):selSet.delete(id)});
+$('#sh_go').onclick=async()=>{if(!can.swap())return toast('Not allowed');const ids=[...selSet].filter(id=>cases.find(c=>c.id===id&&c.status==='swap_todo'));if(!ids.length)return toast('Tick the phones to send first');const ref=val('sh_ref'),d=val('sh_d')||today();
+ try{await Promise.all(ids.map(id=>{const c=cases.find(x=>x.id===id);return db.doc('cases/'+id).update({status:'swap_sent',sentAt:d,swapRef:ref,history:[...(c.history||[]),`${today()} · ${role()} · sent to factory${ref?' ('+ref+')':''}`]})}));selSet.clear();toast(ids.length+' phone(s) marked as sent')}catch(e){toast('Failed: '+(e.code||e.message))}};
+$('#fl').onclick=()=>{const ln=c=>`${c.caseNo} | ${c.model} | IMEI ${c.imei||'-'}${c.swapRef?' | ref '+c.swapRef:''}${c.sentAt?' | sent '+c.sentAt:''}`,sn=cases.filter(c=>c.status==='swap_sent'),td=cases.filter(c=>c.status==='swap_todo');
+ const t=`AT FACTORY, WAITING FOR SWAP (${sn.length})\n`+sn.map(ln).join('\n')+`\n\nTO SEND (${td.length})\n`+td.map(ln).join('\n');
+ open_(`<div class="top"><h1>Factory list</h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><textarea readonly style="min-height:300px">${esc(t)}</textarea><div class="row"><button class="pri" onclick="try{navigator.clipboard.writeText(document.querySelector('#md textarea').value).then(()=>toast('Copied'),()=>toast('Select the text and copy'))}catch(e){toast('Select the text and copy')}">Copy</button></div>`)};
+function audit(a,t,d){if(!db||!uid)return;try{db.doc('audit/a'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)).set({at:Date.now(),uid:String(uid),who:(roles[uid]&&roles[uid].label)||(owner?'owner':''),role:role(),action:a,target:t||'',detail:d||''}).catch(()=>{})}catch(e){}}
+$('#aud').onclick=()=>{open_(`<div class="top"><h1>Audit log</h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><input id="aq" placeholder="Filter by user, action or case…" style="margin:8px 0"><div id="al" class="mu">Loading…</div>`);
+ let rows=[];const draw=()=>{const q=val('aq').toLowerCase(),r=rows.filter(x=>!q||Object.values(x).join(' ').toLowerCase().includes(q));$('#al').innerHTML=r.length?tbl(['Time','User','Role','Action','Case','Detail'],r.map(x=>`<tr><td>${esc(new Date(x.at).toLocaleString())}</td><td>${esc(x.who||String(x.uid).slice(-6))}</td><td>${esc(x.role)}</td><td>${esc(x.action)}</td><td>${esc(x.target)}</td><td>${esc(x.detail)}</td></tr>`).join('')):'No entries.'};
+ $('#aq').oninput=draw;if(auditUn)auditUn();
+ auditUn=db.collection('audit').orderBy('at','desc').limit(200).onSnapshot(s=>{rows=s.docs.map(d=>d.data());draw()},()=>{$('#al').textContent='Not allowed to read the audit log.'})};
+const ask=m=>new Promise(res=>{const o=document.createElement('div');o.className='ov on';o.style.zIndex=25;o.innerHTML=`<div class="md" style="max-width:420px;margin-top:20vh;min-height:0;border-radius:12px"><p>${esc(m)}</p><div class="row"><button class="pri" id="ay">OK</button><button id="an">Cancel</button></div></div>`;document.body.appendChild(o);const f=v=>{o.remove();res(v)};o.querySelector('#ay').onclick=()=>f(true);o.querySelector('#an').onclick=()=>f(false)});
+const WL=v=>v==='out'?'Out of warranty':v==='in'?'Under warranty':'Not specified';
+function wbox(c){
+ const cw=c.warranty||'',log=c.warrantyLog||[],ok=can.ws()&&['waiting','repairing','repaired','swap_todo','swap_sent','swap_done'].includes(c.status);
+ return `<div class="box"><h2>🛡 <span>Warranty status</span></h2><div>${wp(c)}</div>${ok?`<div class="g2"><div><label>Change to</label><select id="w_n"><option value="in"${cw==='in'?' selected':''}>Under warranty</option><option value="out"${cw==='out'?' selected':''}>Out of warranty</option></select></div><div><label>Reason (required)</label><input id="w_r"></div></div><div class="row"><button onclick="setWarranty()">Update warranty</button></div>`:''}${log.length?`<div class="hist" style="margin-top:8px">${log.map(l=>`<div>${esc(l.at)} · <span>${WL(l.from)}</span> → <span>${WL(l.to)}</span> · ${esc(l.by)} · ${esc(l.reason)}</div>`).join('')}</div>`:''}</div>`}
+async function setWarranty(){
+ const c=cur,n=val('w_n'),r=val('w_r');if(!can.ws())return toast('Not allowed');
+ if(n===(c.warranty||''))return toast('Warranty status unchanged');if(!r)return toast('Enter the reason for the change');
+ if(n==='in'&&paidOf(c.id)>0)return toast('Payments already recorded: cannot switch back to under warranty');
+ const d={from:c.warranty||'',to:n,reason:r,at:today(),by:me(),role:role()};
+ if(await run({warranty:n,warrantyLog:[...(c.warrantyLog||[]),d]},'warranty changed to '+(n==='out'?'out of warranty':'under warranty')+': '+r,1))refresh()}
+function payBox(c){
+ if(!can.money()||c.warranty!=='out')return '';
+ const ch=+c.charge||0,pd=paidOf(c.id),bal=due(c),cp=pays.filter(p=>p.caseId===c.id).sort((a,b)=>(b.at||0)-(a.at||0)),k=pst(c);
+ return `<div class="box"><h2>💵 Payment (cash)</h2><div class="g2"><div><label style="margin-top:0">Price charged</label><input id="e_ch" type="number" min="0" step="0.01" value="${ch||''}"></div><div style="display:flex;align-items:flex-end"><button onclick="saveCharge()">Save price</button></div></div>
+<div style="margin-top:8px"><span class="pill ${k==='nocharge'?'':k}">${PL[k]}</span> <span>Paid</span> <b>${money(pd)}</b> <span>of</span> ${money(ch)} · <span>Balance</span> <b class="${bal>0?'slow':''}">${money(bal)}</b></div>
+${can.pay()&&bal>0?`<div class="g2"><div><label>Amount received (cash)</label><input id="e_pa" type="number" min="0" step="0.01" value="${bal}"></div><div><label>Note</label><input id="e_pn"></div></div><div class="row"><button class="pri" onclick="recv()">Receive cash payment</button></div>`:''}
+${cp.length?`<div class="hist" style="margin-top:8px">${cp.map(p=>`<div>${esc(p.date)} · ${money(p.amount)} · ${esc(p.by)}${p.note?' · '+esc(p.note):''}</div>`).join('')}</div>`:''}</div>`}
+const refresh=()=>setTimeout(()=>{if($('#ov').classList.contains('on')&&cur)detail(cur.id)},400);
+async function saveCharge(){const v=parseFloat(val('e_ch'));if(isNaN(v)||v<0)return toast('Enter a valid price');if(await run({charge:v},'price set to '+money(v),1))refresh()}
+async function takePay(items,note){try{await Promise.all(items.map(([c,a],i)=>db.doc('payments/p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)+i).set({caseId:c.id,caseNo:c.caseNo,customer:c.customer,phone:c.phone||'',ck:ck(c),amount:Math.round(a*100)/100,date:today(),by:role(),note:note||'',at:Date.now()})));audit('payment received',items.map(([c])=>c.caseNo).join(', '),money(items.reduce((t,[,a])=>t+a,0)));toast('Cash payment recorded');return true}catch(e){toast('Failed: '+(e.code||e.message));return false}}
+async function recv(){const c=cur,a=parseFloat(val('e_pa')),d=due(c);if(!(a>0))return toast('Enter the amount received');if(a>d+0.001)return toast('More than the balance due ('+money(d)+')');if(await takePay([[c,a]],val('e_pn')))refresh()}
+function pay(){
+ if(!can.pay())return;
+ const oc=cases.filter(c=>c.warranty==='out'),hold=oc.filter(c=>(+c.charge||0)>0&&due(c)>0).sort((a,b)=>(a.returnDate||a.openedAt).localeCompare(b.returnDate||b.openedAt)),nop=oc.filter(c=>!(+c.charge>0)&&c.status!=='archived').length;
+ const pv=$('#pm').value,inP=pays.filter(p=>!pv||(p.date||'').startsWith(pv)),sum=a=>a.reduce((t,p)=>t+p.amount,0),onh=hold.reduce((t,c)=>t+due(c),0),L=(id,t)=>`<a href="#" data-id="${esc(id)}">${esc(t)}</a>`;
+ const A={};oc.forEach(c=>{const k=ck(c),a=A[k]=A[k]||{k,n:'',ph:'',ch:0,pd:0,cs:0};a.ch+=+c.charge||0;a.pd+=paidOf(c.id);a.cs++;a.n=c.customer;a.ph=c.phone});
+ const ac=Object.values(A).map(a=>({...a,bal:Math.max(0,Math.round((a.ch-a.pd)*100)/100)})).sort((x,y)=>y.bal-x.bal),q=$('#pq').value.toLowerCase().trim();
+ $('#pk').innerHTML=`<div class="kp"><div class="k"><b style="color:var(--ok)">${money(sum(pays))}</b><span>Total cash received from out-of-warranty repairs</span></div><div class="k"><b>${money(sum(inP))}</b><span>Received ${pv||'(all time)'}</span></div><div class="k"><b class="${onh?'slow':''}">${money(onh)}</b><span>On hold (owed)</span></div><div class="k"><b>${hold.length}</b><span>Cases with a balance due</span></div><div class="k"><b>${ac.filter(a=>a.bal>0).length}</b><span>Customers owing</span></div><div class="k"><b>${nop}</b><span>Out-of-warranty cases without a price</span></div></div>`;
+ $('#ph').innerHTML=hold.length?tbl(['Case','Customer','Phone','Status','Charged','Paid','Balance','Days'],hold.map(c=>`<tr><td>${L(c.id,c.caseNo)}</td><td>${esc(c.customer)}</td><td>${esc(c.phone)}</td><td class="${['delivered','archived'].includes(c.status)?'slow':''}">${S[c.status]}</td><td>${money(c.charge)}</td><td>${money(paidOf(c.id))}</td><td class="slow">${money(due(c))}</td><td>${f1(age(c.returnDate||c.openedAt))}</td></tr>`).join('')):'<div class="mu">No payments on hold.</div>';
+ const fa=ac.filter(a=>!q||(a.n+' '+a.ph).toLowerCase().includes(q)).slice(0,100);
+ $('#pa').innerHTML=fa.length?tbl(['Customer','Phone','Cases','Charged','Paid','Balance'],fa.map(a=>`<tr data-acct="${esc(a.k)}" style="cursor:pointer"><td>${esc(a.n)}</td><td>${esc(a.ph)}</td><td>${a.cs}</td><td>${money(a.ch)}</td><td>${money(a.pd)}</td><td class="${a.bal?'slow':''}">${money(a.bal)}</td></tr>`).join('')):'<div class="mu">No customer accounts.</div>';
+ const rp=[...inP].sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,100);
+ $('#pr').innerHTML=rp.length?tbl(['Date','Case','Customer','Amount','By','Note',''],rp.map(p=>`<tr><td>${esc(p.date)}</td><td>${L(p.caseId,p.caseNo)}</td><td>${esc(p.customer)}</td><td>${money(p.amount)}</td><td>${esc(p.by)}</td><td>${esc(p.note)}</td><td>${can.adm()?`<button class="dng" data-void="${esc(p.id)}">Void</button>`:''}</td></tr>`).join('')):'<div class="mu">No payments received in this period.</div>';
+}
+$('#pay').addEventListener('click',e=>{const v=e.target.closest('[data-void]'),a=e.target.closest('a[data-id]'),r=e.target.closest('tr[data-acct]');if(v)voidPay(v.dataset.void);else if(a){e.preventDefault();detail(a.dataset.id)}else if(r)acct(r.dataset.acct)});
+$('#pay').addEventListener('input',e=>{if(e.target.id==='pq'||e.target.id==='pm')pay()});
+$('#md').addEventListener('click',e=>{const a=e.target.closest('a[data-id]');if(a){e.preventDefault();detail(a.dataset.id)}});
+async function voidPay(id){if(!(await ask('Void this payment record? The amount goes back on the customer balance.')))return;try{const p=pays.find(x=>x.id===id)||{};await db.doc('payments/'+id).delete();audit('payment voided',p.caseNo,money(p.amount));toast('Payment voided')}catch(e){toast('Failed: '+(e.code||e.message))}}
+function acct(k){
+ const cs=cases.filter(c=>c.warranty==='out'&&ck(c)===k).sort((a,b)=>a.openedAt.localeCompare(b.openedAt));if(!cs.length)return;acctKey=k;
+ const ids=new Set(cs.map(c=>c.id)),ps=pays.filter(p=>ids.has(p.caseId)).sort((a,b)=>(b.at||0)-(a.at||0)),ch=cs.reduce((t,c)=>t+(+c.charge||0),0),pd=cs.reduce((t,c)=>t+paidOf(c.id),0),bal=cs.reduce((t,c)=>t+due(c),0),L=c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`;
+ open_(`<div class="top"><h1>${esc(cs[cs.length-1].customer)}</h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><div class="mu">${esc(cs[0].phone||'no phone')}</div>
+<div class="kp" style="margin-top:10px"><div class="k"><b>${money(ch)}</b><span>Charged</span></div><div class="k"><b style="color:var(--ok)">${money(pd)}</b><span>Paid</span></div><div class="k"><b class="${bal>0?'slow':''}">${money(bal)}</b><span>Balance on account</span></div></div>
+${can.pay()&&bal>0?`<div class="box"><h2>Receive cash on account</h2><div class="g2"><input id="a_a" type="number" min="0" step="0.01" value="${bal}"><input id="a_n" placeholder="Note"></div><div class="mu" style="margin-top:6px">Applied to the oldest unpaid cases first.</div><div class="row"><button class="pri" onclick="acctPay()">Receive cash</button></div></div>`:''}
+<div class="box"><h2>Cases</h2>${tbl(['Case','Device','Status','Charged','Paid','Balance'],cs.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.model)}</td><td>${S[c.status]}</td><td>${money(c.charge)}</td><td>${money(paidOf(c.id))}</td><td class="${due(c)?'slow':''}">${money(due(c))}</td></tr>`).join(''))}</div>
+<div class="box"><h2>Payments</h2>${ps.length?`<div class="hist">${ps.map(p=>`<div>${esc(p.date)} · ${money(p.amount)} · ${esc(p.caseNo)} · ${esc(p.by)}${p.note?' · '+esc(p.note):''}</div>`).join('')}</div>`:'<div class="mu">No payments yet.</div>'}</div>`)}
+async function acctPay(){
+ const cs=cases.filter(c=>c.warranty==='out'&&ck(c)===acctKey&&due(c)>0).sort((a,b)=>a.openedAt.localeCompare(b.openedAt));let a=parseFloat(val('a_a'));const tot=cs.reduce((t,c)=>t+due(c),0);
+ if(!(a>0))return toast('Enter the amount received');if(a>tot+0.001)return toast('More than the balance ('+money(tot)+')');
+ const items=[];for(const c of cs){if(a<=0.001)break;const x=Math.min(due(c),a);items.push([c,x]);a-=x}
+ if(await takePay(items,val('a_n')))setTimeout(()=>acct(acctKey),400)}
+async function del(){if(!(await ask('Delete this case permanently?')))return;try{const n=cur.caseNo;await db.doc('cases/'+cur.id).delete();audit('case deleted',n);shut()}catch(e){toast('Failed: '+(e.code||e.message))}}
+$('#adm').onclick=()=>{open_(`<div class="top"><h1>Users &amp; roles</h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div>
+<div class="box mu">Anyone signed in without a role is a <b>guest</b> (view only). Type the person's Google email in the User ID field. Owners listed in firebase-config.js are always admin.</div>
+<div class="box"><label style="margin-top:0">User ID</label><input id="u_i"><label>Name (label)</label><input id="u_n"><label>Role</label><select id="u_r"><option value="reception">Reception team</option><option value="technician">Repair technician</option><option value="manager">Manager</option><option value="cashier">Cashier</option><option value="admin">Admin</option><option value="blocked">Suspended (no access)</option></select><div class="row"><button class="pri" onclick="addRole()">Save role</button></div></div>
+<div class="box"><b>Assigned</b>${Object.entries(roles).map(([k,v])=>`<div style="display:flex;gap:8px;align-items:center;margin-top:8px"><span class="m"><div>${esc(v.label||'(no name)')} · <b>${esc(v.role)}</b></div><div class="mu">${esc(k)}</div></span><button class="dng" data-rm="${esc(k)}">Remove</button></div>`).join('')||'<div class="mu">None yet</div>'}</div>
+<div class="mu" style="margin-top:12px">Your ID: ${esc(uid)}</div>`);
+ $('#md').onclick=async e=>{const k=e.target.dataset&&e.target.dataset.rm;if(k){try{await db.doc('roles/'+k).delete();audit('role removed',k);$('#adm').click()}catch(x){toast('Failed')}}}};
+async function addRole(){const i=val('u_i');if(!i)return;try{await db.doc('roles/'+i.toLowerCase()).set({role:$('#u_r').value,label:val('u_n')});audit('role assigned',i,$('#u_r').value);toast('Role saved');setTimeout(()=>$('#adm').click(),300)}catch(e){toast('Failed: '+(e.code||e.message))}}
+
+const DICT={fr:{},ar:{}};`Repair Desk|Gestion des réparations|إدارة الإصلاحات
+Dashboard|Tableau de bord|لوحة القيادة
+Cases|Dossiers|الملفات
+🔄 Swap|🔄 Échanges|🔄 الاستبدال
+💵 Payments|💵 Paiements|💵 المدفوعات
+Users|Utilisateurs|المستخدمون
+Audit log|Journal d’audit|سجل التدقيق
++ New case|+ Nouveau dossier|+ ملف جديد
+Language|Langue|اللغة
+admin|admin|مدير النظام
+technician|technicien|فني
+manager|responsable|مسؤول
+cashier|caissier|أمين الصندوق
+guest|invité|زائر
+blocked|suspendu|موقوف
+Could not connect to the database. Check your Firebase settings.|Connexion à la base impossible. Vérifiez vos paramètres Firebase.|تعذّر الاتصال بقاعدة البيانات. تحقق من إعدادات Firebase.
+🔒 No access|🔒 Aucun accès|🔒 لا يوجد وصول
+Your account has no access to this dashboard (not added yet, or suspended). Contact the administrator.|Votre compte n’a pas accès (non ajouté ou suspendu). Contactez l’administrateur.|ليس لحسابك وصول إلى لوحة القيادة (لم يُضف بعد أو موقوف). اتصل بالمسؤول.
+Search name, IMEI, model, case #…|Rechercher nom, IMEI, modèle, n° de dossier…|ابحث بالاسم أو IMEI أو الطراز أو رقم الملف…
+All status|Tous les statuts|كل الحالات
+Waiting for repair|En attente de réparation|بانتظار الإصلاح
+In repair|En réparation|قيد الإصلاح
+Ready for pickup|Prêt à retirer|جاهز للاستلام
+Swap: to send|Échange : à envoyer|استبدال: للإرسال
+Swap: at factory|Échange : en usine|استبدال: لدى المصنع
+Swapped: ready for pickup|Échangé : prêt à retirer|تم الاستبدال: جاهز للاستلام
+Delivered|Remis|تم التسليم
+Archived|Archivé|مؤرشف
+Received from|Reçu à partir du|الاستلام من
+Received to|Reçu jusqu’au|الاستلام إلى
+All|Tous|الكل
+no photo|pas de photo|بلا صورة
+Warranty|Sous garantie|ضمان
+Under warranty|Sous garantie|تحت الضمان
+Out of warranty|Hors garantie|خارج الضمان
+Warranty ?|Garantie ?|الضمان ؟
+Received, waiting for repair|Reçus, en attente de réparation|مستلمة بانتظار الإصلاح
+Still in repair|Toujours en réparation|ما زالت قيد الإصلاح
+Repaired, not yet received by customer|Réparés, pas encore retirés|تم إصلاحها ولم يستلمها الزبون
+Month|Mois|الشهر
+Phones received|Téléphones reçus|الهواتف المستلمة
+Avg repair time (start → repaired)|Durée moy. de réparation|متوسط مدة الإصلاح
+Avg wait before repair starts|Attente moy. avant réparation|متوسط الانتظار قبل الإصلاح
+Avg turnaround (received → returned)|Délai moyen (reçu → rendu)|متوسط المدة الكلية
+Avg days waiting for pickup|Jours moy. avant retrait|متوسط أيام انتظار الاستلام
+Under / out of warranty received|Reçus sous / hors garantie|المستلمة تحت / خارج الضمان
+Cash received this month|Espèces encaissées ce mois|النقد المقبوض هذا الشهر
+Phones received per month|Téléphones reçus par mois|الهواتف المستلمة شهريًا
+Needs attention|À surveiller|يتطلب الاهتمام
+Waiting over 3 days to start:|En attente depuis plus de 3 jours :|بانتظار البدء أكثر من 3 أيام:
+Ready over 3 days, not picked up:|Prêts depuis plus de 3 jours, non retirés :|جاهزة منذ أكثر من 3 أيام ولم تُستلم:
+By technician (finished this month)|Par technicien (terminés ce mois)|حسب الفني (المنتهية هذا الشهر)
+Technician|Technicien|الفني
+Repairs|Réparations|الإصلاحات
+Success|Réussite|النجاح
+Avg repair|Réparation moy.|متوسط الإصلاح
+No finished repairs|Aucune réparation terminée|لا توجد إصلاحات منتهية
+Time per repair|Durée par réparation|مدة كل إصلاح
+Case|Dossier|الملف
+Device|Appareil|الجهاز
+Result|Résultat|النتيجة
+Wait|Attente|الانتظار
+Repair|Réparation|الإصلاح
+Total|Total|المجموع
+✓ repaired|✓ réparé|✓ تم الإصلاح
+✗ unrepairable|✗ irréparable|✗ لا يمكن إصلاحه
+New case|Nouveau dossier|ملف جديد
+Cancel|Annuler|إلغاء
+OK|OK|موافق
+Customer name *|Nom du client *|اسم الزبون *
+Customer phone|Téléphone du client|هاتف الزبون
+Date received|Date de réception|تاريخ الاستلام
+Type|Type|النوع
+Phone|Téléphone|هاتف
+Tablet|Tablette|لوحي
+Brand / model *|Marque / modèle *|العلامة / الطراز *
+Warranty status * (set by the technician)|Statut de garantie * (défini par le technicien)|حالة الضمان * (يحددها الفني)
+Select…|Choisir…|اختر…
+IMEI / serial|IMEI / n° de série|IMEI / الرقم التسلسلي
+Problem *|Problème *|العطل *
+Photo of device|Photo de l’appareil|صورة الجهاز
+Open case file|Ouvrir le dossier|فتح الملف
+Name, model, problem and warranty status are required|Nom, modèle, problème et garantie obligatoires|الاسم والطراز والعطل وحالة الضمان إلزامية
+Close ✕|Fermer ✕|إغلاق ✕
+Problem:|Problème :|العطل:
+IMEI / serial:|IMEI / n° de série :|IMEI / الرقم التسلسلي:
+Received|Reçu le|استُلم
+Started|Début|بدأ
+Repaired|Réparé|أُصلح
+Returned|Rendu|سُلّم
+success|réussi|نجح
+unrepairable|irréparable|لا يُصلح
+Reason:|Motif :|السبب:
+Assigned|Assigné|أُسند
+Sent|Envoyé|أُرسل
+Swapped|Échangé|استُبدل
+Repair information|Informations de réparation|معلومات الإصلاح
+Parts used|Pièces utilisées|القطع المستعملة
+Cost|Coût|التكلفة
+Warranty status|Statut de garantie|حالة الضمان
+Not specified|Non précisé|غير محدد
+Return date to customer|Date de remise au client|تاريخ التسليم للزبون
+Swap reason (to move to swap list)|Motif d’échange|سبب الاستبدال
+Factory shipment / RMA ref|Réf. d’expédition / RMA|مرجع الشحن / RMA
+New phone model|Modèle du nouveau téléphone|طراز الهاتف الجديد
+New phone IMEI|IMEI du nouveau téléphone|IMEI الهاتف الجديد
+Save notes|Enregistrer les notes|حفظ الملاحظات
+Start repair|Démarrer la réparation|بدء الإصلاح
+Mark repaired ✓|Marquer réparé ✓|تم الإصلاح ✓
+Unrepairable|Irréparable|لا يمكن إصلاحه
+Return to customer|Rendre au client|تسليم للزبون
+Archive|Archiver|أرشفة
+Unarchive|Désarchiver|إلغاء الأرشفة
+Reopen|Rouvrir|إعادة الفتح
+Delete|Supprimer|حذف
+Move to swap list|Passer en échange|نقل إلى الاستبدال
+Mark sent to factory|Marquer envoyé à l’usine|تم الإرسال للمصنع
+Back to repair|Retour en réparation|العودة للإصلاح
+Replacement received|Remplacement reçu|تم استلام البديل
+Save new phone|Enregistrer le nouveau téléphone|حفظ الهاتف الجديد
+History|Historique|السجل
+🔄 Swap case|🔄 Dossier d’échange|🔄 ملف استبدال
+Old phone|Ancien téléphone|الهاتف القديم
+New phone|Nouveau téléphone|الهاتف الجديد
+💵 Payment (cash)|💵 Paiement (espèces)|💵 الدفع (نقدًا)
+Price charged|Prix facturé|السعر المطلوب
+Save price|Enregistrer le prix|حفظ السعر
+Amount received (cash)|Montant reçu (espèces)|المبلغ المقبوض (نقدًا)
+Note|Note|ملاحظة
+Receive cash payment|Encaisser le paiement|قبض الدفعة
+Paid|Payé|مدفوع
+Partial|Partiel|جزئي
+On hold|En attente|معلّق
+No price|Sans prix|بلا سعر
+of|sur|من
+Balance|Solde|الرصيد
+Need to be sent to factory|À envoyer à l’usine|بحاجة للإرسال إلى المصنع
+Sent, waiting for swap|Envoyés, en attente d’échange|مرسلة بانتظار الاستبدال
+Already swapped|Déjà échangés|تم استبدالها
+Avg time at factory|Durée moy. en usine|متوسط المدة لدى المصنع
+1 · Need to be sent to factory|1 · À envoyer à l’usine|1 · بحاجة للإرسال إلى المصنع
+2 · Sent, waiting for swap|2 · Envoyés, en attente|2 · مرسلة بانتظار الاستبدال
+3 · Already swapped|3 · Déjà échangés|3 · تم استبدالها
+Shipment / RMA ref|Réf. d’expédition / RMA|مرجع الشحن / RMA
+Mark selected as sent|Marquer la sélection envoyée|تأكيد إرسال المحدد
+Factory list|Liste usine|قائمة المصنع
+Copy|Copier|نسخ
+Customer|Client|الزبون
+Reason|Motif|السبب
+Waiting|Attente|الانتظار
+At factory|En usine|لدى المصنع
+Ref|Réf.|المرجع
+Status|Statut|الحالة
+Nothing waiting to be sent.|Rien à envoyer.|لا شيء بانتظار الإرسال.
+No phones at the factory.|Aucun téléphone en usine.|لا توجد هواتف لدى المصنع.
+No swaps completed yet.|Aucun échange terminé.|لا توجد عمليات استبدال مكتملة.
+Total cash received from out-of-warranty repairs|Total encaissé (hors garantie)|إجمالي النقد المقبوض (خارج الضمان)
+On hold (owed)|En attente (dû)|معلّق (مستحق)
+Cases with a balance due|Dossiers avec solde dû|ملفات برصيد مستحق
+Customers owing|Clients débiteurs|زبائن عليهم مبالغ
+Out-of-warranty cases without a price|Dossiers hors garantie sans prix|ملفات خارج الضمان بلا سعر
+1 · Payments on hold (balance owed)|1 · Paiements en attente (solde dû)|1 · مدفوعات معلّقة (رصيد مستحق)
+2 · Customer accounts|2 · Comptes clients|2 · حسابات الزبائن
+Search customer or phone…|Rechercher client ou téléphone…|ابحث عن زبون أو هاتف…
+3 · Received payments|3 · Paiements reçus|3 · المدفوعات المقبوضة
+Charged|Facturé|المطلوب
+Days|Jours|الأيام
+Date|Date|التاريخ
+Amount|Montant|المبلغ
+By|Par|بواسطة
+Void|Annuler|إلغاء الدفعة
+No payments on hold.|Aucun paiement en attente.|لا توجد مدفوعات معلّقة.
+No customer accounts.|Aucun compte client.|لا توجد حسابات زبائن.
+No payments received in this period.|Aucun paiement sur cette période.|لا توجد مدفوعات في هذه الفترة.
+Receive cash on account|Encaisser sur le compte|قبض نقد على الحساب
+Receive cash|Encaisser|قبض النقد
+Balance on account|Solde du compte|رصيد الحساب
+Payments|Paiements|المدفوعات
+No payments yet.|Aucun paiement.|لا توجد مدفوعات بعد.
+Users & roles|Utilisateurs et rôles|المستخدمون والأدوار
+User ID|ID utilisateur|معرّف المستخدم
+Name (label)|Nom (libellé)|الاسم
+Role|Rôle|الدور
+Repair technician|Technicien de réparation|فني الإصلاح
+Manager|Responsable|مسؤول
+Cashier|Caissier|أمين الصندوق
+Admin|Administrateur|مدير النظام
+Suspended (no access)|Suspendu (aucun accès)|موقوف (بلا وصول)
+Save role|Enregistrer le rôle|حفظ الدور
+Remove|Retirer|إزالة
+None yet|Aucun pour l’instant|لا أحد بعد
+Filter by user, action or case…|Filtrer par utilisateur, action ou dossier…|تصفية حسب المستخدم أو الإجراء أو الملف…
+Time|Heure|الوقت
+User|Utilisateur|المستخدم
+Action|Action|الإجراء
+Detail|Détail|التفاصيل
+Loading…|Chargement…|جارٍ التحميل…
+No entries.|Aucune entrée.|لا توجد إدخالات.
+Delete this case permanently?|Supprimer ce dossier définitivement ?|حذف هذا الملف نهائيًا؟
+Void this payment record? The amount goes back on the customer balance.|Annuler ce paiement ? Le montant revient sur le solde du client.|إلغاء هذه الدفعة؟ سيعود المبلغ إلى رصيد الزبون.
+Saved|Enregistré|تم الحفظ
+Copied|Copié|تم النسخ
+Not allowed|Non autorisé|غير مسموح
+Enter the return date|Saisissez la date de remise|أدخل تاريخ التسليم
+Enter a valid price|Saisissez un prix valide|أدخل سعرًا صحيحًا
+Enter the amount received|Saisissez le montant reçu|أدخل المبلغ المقبوض
+Cash payment recorded|Paiement en espèces enregistré|تم تسجيل الدفعة النقدية
+Payment voided|Paiement annulé|تم إلغاء الدفعة
+Role saved|Rôle enregistré|تم حفظ الدور
+Tick the phones to send first|Cochez d’abord les téléphones à envoyer|حدّد الهواتف المراد إرسالها أولًا
+Enter the new phone model|Saisissez le modèle du nouveau téléphone|أدخل طراز الهاتف الجديد
+Failed|Échec|فشل
+Not allowed or failed|Non autorisé ou échec|غير مسموح أو فشل
+Could not save|Enregistrement impossible|تعذّر الحفظ
+Database error|Erreur de base de données|خطأ في قاعدة البيانات
+Reception team|Équipe réception|فريق الاستقبال
+reception|réception|الاستقبال
+At reception|À la réception|لدى الاستقبال
+In transit → workshop|En transit → atelier|في الطريق ← الورشة
+At workshop|À l’atelier|في الورشة
+In transit → reception|En transit → réception|في الطريق ← الاستقبال
+With customer|Chez le client|عند الزبون
+All locations|Toutes les localisations|كل المواقع
+Where are the items?|Où sont les appareils ?|أين الأجهزة؟
+Possibly missing (not acknowledged for over 24 h):|Peut-être manquants (non confirmés depuis plus de 24 h) :|ربما مفقودة (لم تُؤكَّد منذ أكثر من 24 ساعة):
+No unacknowledged handovers over 24 h|Aucun transfert non confirmé depuis plus de 24 h|لا توجد عمليات تسليم غير مؤكدة لأكثر من 24 ساعة
+Tracking|Suivi|التتبع
+No tracking events yet (older case).|Aucun événement de suivi (ancien dossier).|لا توجد أحداث تتبع (ملف قديم).
+Reception photo|Photo à la réception|صورة الاستقبال
+After-repair photo|Photo après réparation|صورة بعد الإصلاح
+Photo after repair (required to finish)|Photo après réparation (obligatoire pour terminer)|صورة بعد الإصلاح (إلزامية للإنهاء)
+Customer email|E-mail du client|بريد الزبون
+Photo of device (required)|Photo de l’appareil (obligatoire)|صورة الجهاز (إلزامية)
+Reception photo is required|La photo de réception est obligatoire|صورة الاستقبال إلزامية
+Upload the after-repair photo first|Ajoutez d’abord la photo après réparation|ارفع صورة ما بعد الإصلاح أولًا
+Send to workshop|Envoyer à l’atelier|إرسال إلى الورشة
+Confirm received in workshop|Confirmer la réception à l’atelier|تأكيد الاستلام في الورشة
+Hand over to reception|Remettre à la réception|تسليم إلى الاستقبال
+Confirm received at reception|Confirmer la réception à l’accueil|تأكيد الاستلام لدى الاستقبال
+🔎 Track an item: customer name, email, phone or IMEI…|🔎 Suivre un appareil : nom, e-mail, téléphone ou IMEI…|🔎 تتبّع جهازًا: الاسم أو البريد أو الهاتف أو IMEI…
+Received at reception|Reçu à la réception|استُلم لدى الاستقبال
+Sent to workshop|Envoyé à l’atelier|أُرسل إلى الورشة
+Received in workshop|Reçu à l’atelier|استُلم في الورشة
+Repair started|Réparation commencée|بدأ الإصلاح
+Declared unrepairable|Déclaré irréparable|أُعلن أنه لا يُصلح
+Handed to reception|Remis à la réception|سُلّم إلى الاستقبال
+Received back at reception|Reçu de retour à la réception|استُلم عائدًا لدى الاستقبال
+Returned to customer|Rendu au client|سُلّم للزبون
+Under warranty by default; the repair team can change it.|Sous garantie par défaut ; l’équipe de réparation peut la modifier.|ضمن الضمان افتراضيًا؛ يمكن لفريق الإصلاح تغييره.
+Change to|Changer en|تغيير إلى
+Reason (required)|Motif (obligatoire)|السبب (إلزامي)
+Update warranty|Mettre à jour la garantie|تحديث الضمان
+Warranty status unchanged|Statut de garantie inchangé|حالة الضمان لم تتغير
+Enter the reason for the change|Saisissez le motif du changement|أدخل سبب التغيير
+Payments already recorded: cannot switch back to under warranty|Paiements déjà enregistrés : retour sous garantie impossible|توجد مدفوعات مسجلة: لا يمكن الرجوع إلى تحت الضمان
+Name, model and problem are required|Nom, modèle et problème obligatoires|الاسم والطراز والعطل إلزامية
+Take photo|Prendre une photo|التقاط صورة
+Choose from gallery|Choisir dans la galerie|اختيار من المعرض
+Could not read the photo|Impossible de lire la photo|تعذّرت قراءة الصورة
+Mobile repair workshop|Atelier de réparation mobile|ورشة إصلاح الهواتف
+Sign out|Déconnexion|تسجيل الخروج`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
+const PAT=[[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
+[/^(Under warranty|Out of warranty) \((\d+)\)$/,(m,l)=>DICT[l][m[1]]+' ('+m[2]+')'],
+[/^(\d+) of (\d+) cases$/,(m,l)=>l==='fr'?m[1]+' sur '+m[2]+' dossiers':m[1]+' من '+m[2]+' ملف'],
+[/^Repair success rate \((\d+)\/(\d+) finished\)$/,(m,l)=>l==='fr'?`Taux de réussite (${m[1]}/${m[2]} terminés)`:`نسبة نجاح الإصلاح (${m[1]}/${m[2]} منتهية)`],
+[/^Sent to swap \((\d+)%\)$/,(m,l)=>(l==='fr'?'Envoyés en échange (':'أُرسلت للاستبدال (')+m[1]+'%)'],
+[/^Received (\d{4}-\d{2}|\(all time\))$/,(m,l)=>(l==='fr'?'Encaissé ':'المقبوض ')+(m[1][0]==='('?(l==='fr'?'(total)':'(الكل)'):m[1])],
+[/^At factory over 14 days(.*)$/,(m,l)=>(l==='fr'?'En usine depuis plus de 14 jours':'لدى المصنع أكثر من 14 يومًا')+m[1].replace('oldest',l==='fr'?'le plus ancien':'الأقدم').replace(/ d\)/,l==='fr'?' j)':' ي)')],
+[/^(Failed|Not allowed or failed|Could not save|Database error): (.*)$/,(m,l)=>(DICT[l][m[1]]||m[1])+' : '+m[2]],
+[/^Case (\S+) opened$/,(m,l)=>l==='fr'?'Dossier '+m[1]+' ouvert':'تم فتح الملف '+m[1]],
+[/^This customer still owes (.+)\. Return the phone anyway\? The balance stays on their account\.$/,(m,l)=>l==='fr'?`Ce client doit encore ${m[1]}. Rendre le téléphone quand même ? Le solde reste sur son compte.`:`على هذا الزبون ${m[1]} متبقٍ. هل تسلّم الهاتف رغم ذلك؟ يبقى الرصيد في حسابه.`],
+[/^More than the balance(?: due)? \((.+)\)$/,(m,l)=>(l==='fr'?'Dépasse le solde (':'أكثر من الرصيد (')+m[1]+')'],
+[/^(\d+) phone\(s\) marked as sent$/,(m,l)=>l==='fr'?m[1]+' téléphone(s) marqué(s) envoyé(s)':'تم تأكيد إرسال '+m[1]+' هاتف']];
+let LANG='en';try{LANG=localStorage.getItem('rd_lang')||'en'}catch(e){}
+const ORIG=new WeakMap();
+function T(x){if(LANG==='en')return x;const k=x.trim();if(!k)return x;let r=DICT[LANG][k];if(r==null)for(const [re,fn] of PAT){const m=k.match(re);if(m){r=fn(m,LANG);break}}return r==null?x:x.replace(k,()=>r)}
+function tx(n){const p=n.parentNode&&n.parentNode.nodeName;if(p==='SCRIPT'||p==='STYLE'||p==='TEXTAREA')return;if(!ORIG.has(n))ORIG.set(n,n.nodeValue);const t=T(ORIG.get(n));if(t!==n.nodeValue)n.nodeValue=t}
+function el(n){for(const a of ['placeholder','title']){if(n.hasAttribute&&n.hasAttribute(a)){const k='data-o-'+a;if(!n.hasAttribute(k))n.setAttribute(k,n.getAttribute(a));const t=T(n.getAttribute(k));if(t!==n.getAttribute(a))n.setAttribute(a,t)}}}
+function walk(root){el(root);const w=document.createTreeWalker(root,5);let n;while(n=w.nextNode()){n.nodeType===3?tx(n):el(n)}}
+new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===3)tx(n);else if(n.nodeType===1)walk(n)}))).observe(document.body,{childList:true,subtree:true});
+function setLang(l){LANG=l;try{localStorage.setItem('rd_lang',l)}catch(e){}document.documentElement.lang=l;document.documentElement.dir=l==='ar'?'rtl':'ltr';$('#lang').value=l;walk(document.body)}
+$('#lang').onchange=e=>setLang(e.target.value);
+dash();swp();$('#sh_d').value=today();$('#pm').value=today().slice(0,7);init();setLang(LANG);$('#role').style.cursor='pointer';$('#role').onclick=()=>toast('ID: '+uid);document.body.classList.add('boot');setTimeout(()=>document.body.classList.remove('boot'),1500);
