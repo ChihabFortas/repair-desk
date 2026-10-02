@@ -30,7 +30,7 @@ async function init(){
  setTimeout(()=>{if(role()!=='guest'&&!can.blocked())audit('opened app')},2500);
  head();
 }
-function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.pay()?'':'none';$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay()}
+function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.pay()?'':'none';$('#tS').style.display=can.swap()?'':'none';$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay();dash()}
 function tab(t){[['D','dash'],['C','cases'],['S','swap'],['P','pay']].forEach(([k,i])=>{$('#'+i).style.display=k===t?'':'none';$('#t'+k).className=k===t?'on':''})}
 $('#tD').onclick=()=>tab('D');$('#tC').onclick=()=>tab('C');$('#wt').onclick=e=>{const b=e.target.closest('button');if(!b)return;wf=b.dataset.w;[...$('#wt').children].forEach(x=>x.className=x===b?'on':'');list()};$('#tS').onclick=()=>tab('S');$('#tP').onclick=()=>tab('P');$('#tk').addEventListener('input',e=>{$('#q').value=e.target.value;tab('C');list()});
 function list(){
@@ -42,7 +42,7 @@ function list(){
 }
 ['q','st','lc','d1','d2'].forEach(i=>$('#'+i).addEventListener('input',list));
 $('#list').addEventListener('click',e=>{const c=e.target.closest('.c');if(c)detail(c.dataset.id)});
-function dash(){
+function dash0(){
  const n=s=>cases.filter(c=>c.status===s).length,inM=cases.filter(c=>(c.openedAt||'').startsWith(mo)),done=inM.filter(c=>c.repairedAt),ok=done.filter(c=>c.outcome==='success'),dl=inM.filter(c=>c.returnDate);
  const rt=avg(done.map(c=>dd(c.startedAt,c.repairedAt))),wt=avg(inM.map(c=>dd(c.openedAt,c.startedAt))),tt=avg(dl.map(c=>dd(c.openedAt,c.returnDate))),pd=avg(dl.map(c=>dd(c.repairedAt,c.returnDate)));
  const late=cases.filter(c=>c.status==='waiting'&&age(c.openedAt)>3),stuck=cases.filter(c=>c.status==='repaired'&&age(c.repairedAt)>3);
@@ -58,15 +58,31 @@ function dash(){
 <div class="box"><h2>By technician (finished this month)</h2><div class="sc"><table><tr><th>Technician</th><th>Repairs</th><th>Success</th><th>Avg repair</th></tr>${Object.entries(T).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.length}</td><td>${Math.round(v.filter(c=>c.outcome==='success').length/v.length*100)}%</td><td>${f1(avg(v.map(c=>dd(c.startedAt,c.repairedAt))))}</td></tr>`).join('')||'<tr><td colspan=4 class="mu">No finished repairs</td></tr>'}</table></div></div>
 <div class="box"><h2>Time per repair</h2><div class="sc"><table><tr><th>Case</th><th>Device</th><th>Result</th><th>Wait</th><th>Repair</th><th>Total</th></tr>${done.sort((a,b)=>b.repairedAt.localeCompare(a.repairedAt)).slice(0,20).map(c=>{const r=dd(c.startedAt,c.repairedAt);return `<tr><td><a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a></td><td>${esc(c.model)}</td><td>${c.outcome==='success'?'✓ repaired':'✗ unrepairable'}</td><td>${f1(dd(c.openedAt,c.startedAt))}</td><td class="${rt&&r>rt*1.5?'slow':''}">${f1(r)}</td><td>${f1(dd(c.openedAt,c.returnDate||c.repairedAt))}</td></tr>`}).join('')||'<tr><td colspan=6 class="mu">No finished repairs</td></tr>'}</table></div><div class="mu" style="margin-top:6px">Red = over 1.5× the month's average. Older cases without a start date show —.</div></div>`;
 }
+const DV={reception:{k:['Received, waiting','Still in repair','Repaired, not yet','Phones received','Avg turnaround','Avg days waiting'],b:['Where are the items','Phones received per month','Needs attention'],a:'Ready over',m:1},
+ technician:{k:['Received, waiting','Still in repair','Repair success','Avg repair time','Avg wait before'],b:['Where are the items','Needs attention','Time per repair'],a:'Waiting over',m:1},
+ guest:{k:['Received, waiting','Still in repair','Repaired, not yet'],b:[],a:'',m:0}};
+function dash(){dash0();filterDash()}
+function filterDash(){
+ const r=role(),box=$('#dash');
+ if(r==='cashier'){
+  const oc=cases.filter(c=>c.warranty==='out'),hold=oc.filter(c=>(+c.charge||0)>0&&due(c)>0),sum=a=>a.reduce((t,p)=>t+p.amount,0),nop=oc.filter(c=>!(+c.charge>0)&&c.status!=='archived').length;
+  box.innerHTML=`<div class="top"><h2 style="margin:0">Month</h2><input type="month" id="mo" value="${mo}" style="width:auto"></div><div class="kp"><div class="k"><b>${money(sum(pays.filter(p=>(p.date||'').startsWith(mo))))}</b><span>Cash received this month</span></div><div class="k"><b style="color:var(--ok)">${money(sum(pays))}</b><span>Total cash received from out-of-warranty repairs</span></div><div class="k"><b class="${hold.length?'slow':''}">${money(hold.reduce((t,c)=>t+due(c),0))}</b><span>On hold (owed)</span></div><div class="k"><b>${hold.length}</b><span>Cases with a balance due</span></div><div class="k"><b>${new Set(hold.map(ck)).size}</b><span>Customers owing</span></div><div class="k"><b>${nop}</b><span>Out-of-warranty cases without a price</span></div></div>`;return}
+ const v=DV[r];if(!v)return;
+ box.querySelectorAll('.k').forEach(k=>{if(k.closest('.box'))return;const t=k.querySelector('span').textContent;if(!v.k.some(x=>t.startsWith(x)))k.remove()});
+ box.querySelectorAll('.box').forEach(b=>{const t=b.querySelector('h2').textContent;if(!v.b.some(x=>t.includes(x)))b.remove()});
+ box.querySelectorAll('.box .mu').forEach(d=>{const t=d.textContent;if((t.startsWith('Waiting over')||t.startsWith('Ready over'))&&v.a&&!t.startsWith(v.a))d.remove()});
+ box.querySelectorAll('.kp').forEach(k=>{if(!k.children.length)k.remove()});
+ if(!v.m){const m=box.querySelector('#mo');if(m)m.closest('.top').remove()}
+}
 $('#dash').addEventListener('input',e=>{if(e.target.id==='mo'&&e.target.value){mo=e.target.value;dash()}});
 $('#dash').addEventListener('click',e=>{const k=e.target.closest('[data-go]'),a=e.target.closest('a[data-id]');if(a){e.preventDefault();detail(a.dataset.id)}else if(k){$('#st').value=k.dataset.go;tab('C');list()}else{const l=e.target.closest('[data-loc]');if(l){$('#lc').value=l.dataset.loc;$('#st').value='';tab('C');list()}}});
 function open_(h){$('#md').innerHTML=h;$('#ov').classList.add('on')}
 function shut(){if(auditUn){auditUn();auditUn=null}$('#ov').classList.remove('on');cur=null;photo=null;photo2=null}
 $('#new').onclick=()=>{photo=null;open_(`<div class="top"><h1>New case</h1><span class="sp"></span><button onclick="shut()">Cancel</button></div>
-<label>Customer name *</label><input id="f_c"><label>Customer email</label><input id="f_e" type="email"><div class="g2"><div><label>Customer phone</label><input id="f_p" type="tel"></div><div><label>Date received</label><input id="f_d" type="date" value="${today()}"></div></div>
+<label>Customer name *</label><input id="f_c"><div class="g2"><div><label>Customer phone</label><input id="f_p" type="tel"></div><div><label>Date received</label><input id="f_d" type="date" value="${today()}"></div></div>
 <div class="g2"><div><label>Type</label><select id="f_t"><option value="Phone">Phone</option><option value="Tablet">Tablet</option></select></div><div><label>Brand / model *</label><input id="f_m"></div></div>
 <div class="mu" style="margin-top:8px">🛡 <span>Under warranty by default; the repair team can change it.</span></div>
-<label>IMEI / serial</label><input id="f_i" inputmode="numeric"><label>Problem *</label><textarea id="f_pr"></textarea>
+<label>IMEI / serial</label><div class="sf"><input id="f_i" inputmode="numeric"><button type="button" class="pri" onclick="scan('f_i')">📷 <span>Scan</span></button></div><label>Problem *</label><textarea id="f_pr"></textarea>
 <label>Photo of device (required)</label>${pick('pv')}
 <div class="row"><button class="pri" onclick="create()">Open case file</button></div>`);
 };
@@ -77,7 +93,7 @@ const val=id=>{const e=$('#'+id);return e?e.value.trim():''};
 async function create(){
  const c=val('f_c'),m=val('f_m'),p=val('f_pr');if(!can.rec())return toast('Not allowed');if(!c||!m||!p)return toast('Name, model and problem are required');if(!photo)return toast('Reception photo is required');
  const no='R'+val('f_d').replace(/-/g,'').slice(2)+'-'+Math.floor(100+Math.random()*900);
- const o={caseNo:no,customer:c,phone:val('f_p'),type:$('#f_t').value,warranty:'in',warrantyLog:[],model:m,imei:val('f_i'),problem:p,openedAt:val('f_d')||today(),status:'waiting',loc:'reception',email:val('f_e'),track:[mk('received')],photo:photo,photoDone:'',repairInfo:'',parts:'',cost:'',tech:'',startedAt:'',repairedAt:'',outcome:'',returnDate:'',history:[`${today()} · ${role()} · case opened`]};
+ const o={caseNo:no,customer:c,phone:val('f_p'),type:$('#f_t').value,warranty:'in',warrantyLog:[],model:m,imei:val('f_i'),problem:p,openedAt:val('f_d')||today(),status:'waiting',loc:'reception',track:[mk('received')],photo:photo,photoDone:'',repairInfo:'',parts:'',cost:'',tech:'',startedAt:'',repairedAt:'',outcome:'',returnDate:'',history:[`${today()} · ${role()} · case opened`]};
  try{await db.doc('cases/'+no.toLowerCase()).set(o);audit('case opened',no);shut();toast('Case '+no+' opened')}catch(e){toast('Could not save: '+(e.code||e.message))}
 }
 function detail(id){
@@ -94,9 +110,10 @@ ${s==='repairing'&&ed?`<label>Photo after repair (required to finish)</label>${p
 ${(s==='repaired'||s==='swap_done')&&can.rec()&&(s==='swap_done'||loc==='reception')?`<label>Return date to customer</label><input id="e_d" type="date" value="${today()}">`:''}
 ${(s==='waiting'||s==='repairing')&&sw?`<label>Swap reason (to move to swap list)</label><input id="e_sr">`:''}
 ${s==='swap_todo'&&sw?`<label>Factory shipment / RMA ref</label><input id="e_ref">`:''}
-${(s==='swap_sent'||s==='swap_done')&&sw?`<div class="g2"><div><label>New phone model</label><input id="n_m" value="${esc(c.newModel)}"></div><div><label>New phone IMEI</label><input id="n_i" value="${esc(c.newImei)}"></div></div>`:''}</div>
+${(s==='swap_sent'||s==='swap_done')&&sw?`<div class="g2"><div><label>New phone model</label><input id="n_m" value="${esc(c.newModel)}"></div><div><label>New phone IMEI</label><div class="sf"><input id="n_i" value="${esc(c.newImei)}"><button type="button" class="pri" onclick="scan('n_i')">📷 <span>Scan</span></button></div></div></div>`:''}</div>
 <div class="row">${ed?`<button onclick="run({},'notes updated',1)">Save notes</button>`:''}
 ${s==='waiting'&&loc==='reception'&&can.rec()?`<button class="pri" onclick="run({loc:'to_ws',__ev:'sent_ws'},'sent to workshop')">Send to workshop</button>`:''}
+${s==='repaired'&&loc==='reception'&&can.rec()?`<button onclick="run({loc:'to_ws',__ev:'sent_ws'},'sent back to workshop')">Send back to workshop</button>`:''}
 ${loc==='to_ws'&&can.ws()?`<button class="pri" onclick="run({loc:'workshop',__ev:'recv_ws'},'received in workshop')">Confirm received in workshop</button>`:''}
 ${s==='waiting'&&loc==='workshop'&&ed?`<button class="pri" onclick="run({status:'repairing',startedAt:today(),__ev:'started'},'repair started')">Start repair</button>`:''}
 ${s==='repaired'&&loc==='workshop'&&can.ws()?`<button class="pri" onclick="run({loc:'to_rec',__ev:'handed_rec'},'handed to reception')">Hand over to reception</button>`:''}
@@ -105,7 +122,7 @@ ${s==='repairing'&&ed?`<button class="pri" onclick="finish('success')">Mark repa
 ${s==='repaired'&&loc==='reception'&&can.rec()?`<button class="pri" onclick="deliver()">Return to customer</button>`:''}
 ${s==='delivered'&&can.arch()?`<button class="pri" onclick="run({status:'archived'},'archived')">Archive</button>`:''}
 ${s==='archived'&&can.arch()?`<button onclick="run({status:'delivered'},'unarchived')">Unarchive</button>`:''}
-${['repaired','delivered','archived'].includes(s)&&can.edit()&&!c.swapAt?`<button onclick="run({status:'repairing',loc:'workshop',repairedAt:'',returnDate:'',outcome:''},'reopened')">Reopen</button>`:''}
+${['repaired','delivered','archived'].includes(s)&&can.edit()&&!c.swapAt?(loc==='workshop'?`<button onclick="reopen()">Reopen</button>`:`<button disabled title="The phone is not in the workshop">Reopen</button><span class="mu"><span>Phone is with reception: resend it to the workshop first.</span></span>`):''}
 ${(s==='waiting'||s==='repairing')&&sw?`<button class="dng" onclick="run({status:'swap_todo',swapAt:today(),swapReason:val('e_sr'),repairedAt:'',outcome:''},'moved to swap list')">Move to swap list</button>`:''}
 ${s==='swap_todo'&&sw?`<button class="pri" onclick="run({status:'swap_sent',sentAt:today(),swapRef:val('e_ref')},'sent to factory')">Mark sent to factory</button><button onclick="run({status:'waiting',swapAt:'',swapReason:''},'removed from swap list')">Back to repair</button>`:''}
 ${s==='swap_sent'&&sw?`<button class="pri" onclick="swapped()">Replacement received</button>`:''}
@@ -116,6 +133,20 @@ ${can.adm()?`<button class="dng" onclick="del()">Delete</button>`:''}</div>
 }
 async function finish(o){const p=photo2||cur.photoDone;if(!p)return toast('Upload the after-repair photo first');run({status:'repaired',outcome:o,repairedAt:today(),photoDone:p,__ev:o==='success'?'repaired':'unrepairable'},o==='success'?'repaired':'unrepairable')}
 
+function reopen(){if(cur.loc!=='workshop')return toast('The phone is not in the workshop');run({status:'repairing',repairedAt:'',returnDate:'',outcome:''},'reopened')}
+function loadScanner(){return new Promise((res,rej)=>{if(window.Html5Qrcode)return res();const x=document.createElement('script');x.src='https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js';x.onload=res;x.onerror=rej;document.head.appendChild(x)})}
+const imeiOf=t=>{const m=String(t).match(/\d{15}/);return m?m[0]:String(t).trim()};
+async function scan(id){
+ const o=document.createElement('div');o.className='ov on';o.style.zIndex=28;
+ o.innerHTML=`<div class="md" style="max-width:460px"><div class="top"><h1>📷 <span>Scan IMEI</span></h1><span class="sp"></span><button id="sx">Cancel</button></div><div id="rd" style="width:100%;border-radius:12px;overflow:hidden;background:#000;min-height:120px"></div><div class="mu" id="rs" style="margin-top:8px">Point the camera at the barcode</div><div class="row"><label class="btn">🖼 <span>Scan from a photo</span><input class="hid" type="file" accept="image/*" id="rf"></label></div></div>`;
+ document.body.appendChild(o);let h=null;
+ const fin=async t=>{if(t!=null){const v=imeiOf(t),i=$('#'+id);if(i){i.value=v;i.dispatchEvent(new Event('input',{bubbles:true}))}toast(v)}try{if(h)await h.stop()}catch(e){}try{if(h)h.clear()}catch(e){}o.remove()};
+ $('#sx').onclick=()=>fin(null);
+ try{await loadScanner()}catch(e){$('#rs').textContent='Scanner unavailable (no internet?)';return}
+ const F=Html5QrcodeSupportedFormats;h=new Html5Qrcode('rd',{formatsToSupport:[F.CODE_128,F.CODE_39,F.EAN_13,F.ITF,F.CODABAR,F.QR_CODE,F.DATA_MATRIX].filter(x=>x!=null),useBarCodeDetectorIfSupported:true,verbose:false});
+ $('#rf').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{fin(await h.scanFile(f,false))}catch(x){$('#rs').textContent='No barcode found in the photo. Try again closer.'}};
+ try{await h.start({facingMode:'environment'},{fps:10,qrbox:{width:280,height:140}},t=>fin(t),()=>{})}catch(e){$('#rs').textContent='Cannot start the camera. Use "Scan from a photo" or type it.'}
+}
 async function deliver(){const d=val('e_d');if(!d)return toast('Enter the return date');const c=cur,b=can.money()?due(c):0;
  if(b>0&&!(await ask('This customer still owes '+money(b)+'. Return the phone anyway? The balance stays on their account.')))return;
  run({status:'delivered',returnDate:d,loc:'customer',__ev:'returned'},'returned to customer'+(b>0?' (balance '+money(b)+' unpaid)':''))}
@@ -447,7 +478,7 @@ Send to workshop|Envoyer à l’atelier|إرسال إلى الورشة
 Confirm received in workshop|Confirmer la réception à l’atelier|تأكيد الاستلام في الورشة
 Hand over to reception|Remettre à la réception|تسليم إلى الاستقبال
 Confirm received at reception|Confirmer la réception à l’accueil|تأكيد الاستلام لدى الاستقبال
-🔎 Track an item: customer name, email, phone or IMEI…|🔎 Suivre un appareil : nom, e-mail, téléphone ou IMEI…|🔎 تتبّع جهازًا: الاسم أو البريد أو الهاتف أو IMEI…
+🔎 Track an item: customer name, phone or IMEI…|🔎 Suivre un appareil : nom, téléphone ou IMEI…|🔎 تتبّع جهازًا: الاسم أو الهاتف أو IMEI…
 Received at reception|Reçu à la réception|استُلم لدى الاستقبال
 Sent to workshop|Envoyé à l’atelier|أُرسل إلى الورشة
 Received in workshop|Reçu à l’atelier|استُلم في الورشة
@@ -468,7 +499,17 @@ Take photo|Prendre une photo|التقاط صورة
 Choose from gallery|Choisir dans la galerie|اختيار من المعرض
 Could not read the photo|Impossible de lire la photo|تعذّرت قراءة الصورة
 Mobile repair workshop|Atelier de réparation mobile|ورشة إصلاح الهواتف
-Sign out|Déconnexion|تسجيل الخروج`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
+Sign out|Déconnexion|تسجيل الخروج
+Scan|Scanner|مسح
+Scan IMEI|Scanner l’IMEI|مسح IMEI
+Scan from a photo|Scanner depuis une photo|مسح من صورة
+Point the camera at the barcode|Pointez la caméra vers le code-barres|وجّه الكاميرا نحو الرمز الشريطي
+No barcode found in the photo. Try again closer.|Aucun code-barres trouvé. Réessayez de plus près.|لم يُعثر على رمز شريطي. أعد المحاولة عن قرب.
+Scanner unavailable (no internet?)|Scanner indisponible (pas d’internet ?)|الماسح غير متاح (لا اتصال؟)
+Cannot start the camera. Use "Scan from a photo" or type it.|Caméra indisponible. Utilisez « Scanner depuis une photo » ou saisissez.|تعذّر تشغيل الكاميرا. استخدم «مسح من صورة» أو اكتبه.
+Send back to workshop|Renvoyer à l’atelier|إعادة إلى الورشة
+The phone is not in the workshop|Le téléphone n’est pas à l’atelier|الهاتف ليس في الورشة
+Phone is with reception: resend it to the workshop first.|Le téléphone est à la réception : renvoyez-le d’abord à l’atelier.|الهاتف لدى الاستقبال: أعده أولًا إلى الورشة.`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
 const PAT=[[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
 [/^(Under warranty|Out of warranty) \((\d+)\)$/,(m,l)=>DICT[l][m[1]]+' ('+m[2]+')'],
 [/^(\d+) of (\d+) cases$/,(m,l)=>l==='fr'?m[1]+' sur '+m[2]+' dossiers':m[1]+' من '+m[2]+' ملف'],

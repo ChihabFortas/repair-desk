@@ -5,7 +5,7 @@ Four collections. No indexes needed.
 ## `cases/{caseNo}`  — one document per phone/tablet (id = case number in lowercase, e.g. `r261001-123`)
 | field | type | notes |
 |---|---|---|
-| caseNo, customer, email, phone, model, imei, problem | string | intake data |
+| caseNo, customer, phone, model, imei, problem | string | intake data (`email` exists only on older cases) |
 | type | string | `Phone` / `Tablet` |
 | openedAt | string | `YYYY-MM-DD` date received |
 | status | string | `waiting` `repairing` `repaired` `swap_todo` `swap_sent` `swap_done` `delivered` `archived` |

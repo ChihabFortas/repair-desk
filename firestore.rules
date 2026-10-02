@@ -36,7 +36,9 @@ service cloud.firestore {
         && (!touches(['photo','photoDone','repairInfo','parts','cost','tech','startedAt','repairedAt','outcome']) || myRole() in ['admin','technician'])
         && (!touches(['charge']) || myRole() in ['admin','manager','cashier','technician'])
         && (!touches(['loc','track','returnDate']) || myRole() in ['admin','reception','technician'])
-        && (!touches(['status']) || myRole() in ['admin','reception','technician','manager']);
+        && (!touches(['status']) || myRole() in ['admin','reception','technician','manager'])
+        // a case can only be re-opened while the phone is physically in the workshop
+        && !(resource.data.status in ['repaired','delivered','archived'] && request.resource.data.status == 'repairing' && resource.data.loc != 'workshop');
       allow delete: if myRole() == 'admin';
     }
 

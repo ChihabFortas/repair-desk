@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Repair Desk</title><link rel="icon" href="data:,">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="app-version" content="11"><title>Repair Desk</title><link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root{--bg:#eaeff3;--card:#fff;--tx:#0f1b2a;--mu:#5a6b7d;--bd:#d8e0e8;--ac:#0e7490;--ac2:#0891b2;--or:#ea580c;--ok:#15803d;--wr:#b45309;--bad:#c62828;--sh:0 1px 2px rgba(15,27,42,.06),0 6px 18px rgba(15,27,42,.07);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -54,6 +54,7 @@ label{display:block;font-size:12px;font-weight:500;color:var(--mu);margin:10px 0
 .hist div{font-size:13px;color:var(--mu);padding:2px 0}
 .btn{position:relative;overflow:hidden;display:inline-block;padding:10px 14px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);cursor:pointer;margin:0;font-size:15px;font-weight:500}.btn.pri{background:linear-gradient(180deg,#0e90b0,#0b7490);border-color:#0b7490;color:#fff}
 .hid{position:absolute;inset:0;width:100%;height:100%;opacity:0;padding:0;border:0;cursor:pointer;font-size:0}
+.sf{display:flex;gap:6px}.sf input{flex:1;min-width:0}.sf button{flex:none}button:disabled{opacity:.45;cursor:not-allowed}button:disabled:active{transform:none}
 .kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
 .k{position:relative;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px 14px 12px 18px;box-shadow:var(--sh);overflow:hidden;transition:transform .15s,box-shadow .15s}
 .k::before{content:"";position:absolute;inset-block:0;inset-inline-start:0;width:5px;background:var(--ac2)}
@@ -72,7 +73,7 @@ th,td{text-align:start;padding:7px 9px;border-bottom:1px solid var(--bd);white-s
 </style></head><body><div class="w">
 <div class="top"><h1><i class="logo">🔧</i><span class="bt"><span>Repair Desk</span><small>Mobile repair workshop</small></span></h1><span class="pill" id="role"></span><span class="sp"></span><button id="aud" style="display:none">Audit log</button><button id="adm" style="display:none">Users</button><button class="pri" id="new" style="display:none">+ New case</button><select id="lang" title="Language" style="width:auto"><option value="en">EN</option><option value="fr">FR</option><option value="ar">عربي</option></select></div>
 <div id="off" class="box" style="display:none">Could not connect to the database. Check your Firebase settings.</div>
-<input id="tk" placeholder="🔎 Track an item: customer name, email, phone or IMEI…" style="margin-bottom:10px"><div class="tabs"><button id="tD" class="on">Dashboard</button><button id="tC">Cases</button><button id="tS">🔄 Swap</button><button id="tP" style="display:none">💵 Payments</button></div>
+<input id="tk" placeholder="🔎 Track an item: customer name, phone or IMEI…" style="margin-bottom:10px"><div class="tabs"><button id="tD" class="on">Dashboard</button><button id="tC">Cases</button><button id="tS">🔄 Swap</button><button id="tP" style="display:none">💵 Payments</button></div>
 <div id="dash"></div>
 <div id="swap" style="display:none"><div id="swk"></div>
 <div class="box"><h2>1 · Need to be sent to factory</h2><div id="swt"></div><div class="row"><input id="sh_ref" placeholder="Shipment / RMA ref" style="flex:2"><input id="sh_d" type="date" style="flex:1"><button class="pri" id="sh_go">Mark selected as sent</button></div></div>

@@ -5,10 +5,10 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAut
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, collection, doc, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { FIREBASE_CONFIG, OWNER_EMAILS, APP_VERSION } from "./firebase-config.js";
+import { FIREBASE_CONFIG, OWNER_EMAILS } from "./firebase-config.js";
 
 const $ = s => document.querySelector(s);
-$("#ver").textContent = "Repair Desk · v" + APP_VERSION;
+$("#ver").textContent = "Repair Desk · v" + ((document.querySelector('meta[name="app-version"]') || {}).content || "");
 const app = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(app);
 const fs = initializeFirestore(app, { localCache: persistentLocalCache() });

@@ -1,4 +1,5 @@
 # Changelog
+- v11 (rules changed): re-open only while the phone is in the workshop (reception can resend it); IMEI barcode scanner (camera / photo); customer email removed from new cases; dashboard KPIs per role (cashier = finance only); Swap tab only for admin, manager, technician.
 - v10: workshop/enterprise redesign (header, colour system, animation). Packaged for GitHub Pages + Firebase.
 - v9: camera / gallery photo buttons for phones.
 - v8: warranty defaults to "under warranty"; repair team changes it with a reason.
