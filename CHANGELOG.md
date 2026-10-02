@@ -1,4 +1,5 @@
 # Changelog
+- v12 (rules changed): Inventory tab - goods receiving notes, part lots (good / defective / consumed / sent back), parts used on out-of-warranty repairs add to the repair price. Admin, manager and technician only.
 - v11 (rules changed): re-open only while the phone is in the workshop (reception can resend it); IMEI barcode scanner (camera / photo); customer email removed from new cases; dashboard KPIs per role (cashier = finance only); Swap tab only for admin, manager, technician.
 - v10: workshop/enterprise redesign (header, colour system, animation). Packaged for GitHub Pages + Firebase.
 - v9: camera / gallery photo buttons for phones.

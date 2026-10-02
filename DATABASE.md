@@ -21,6 +21,13 @@ Four collections. No indexes needed.
 | track | array | `{k,at(ms),by,role}` custody events |
 | history | array | text log lines |
 
+## Inventory (admin, manager, technician)
+- `grn/{grn-YYMM-NNN}` receiving note: `no, date, status (draft|confirmed), lines [{name, qty, unit}], by, confirmedAt, confirmedBy`. Confirmed notes are locked.
+- `parts/{noteId-lineIndex}` part lot created when a note is confirmed: `name, qtyIn, unitCost, noteId, noteNo, date, by`.
+- `stockmoves/{autoId}` append-only: `partId, k (consume|defect|defect_case|sendback), qty, caseId, caseNo, date, at, by, who, note`.
+- Stock is computed: good = qtyIn - consume - defect; consumed = consume - defect_case; defective = defect + defect_case - sendback; sent back = sendback.
+- `cases.partLines [{mid, partId, name, qty, unit, at, by}]` and `cases.partsTotal` (added to the repair price; total due = charge + partsTotal).
+
 ## `payments/{autoId}` — cash received (the customer account is computed from these + `cases.charge`)
 `caseId, caseNo, customer, phone, ck (customer key), amount (number), date, by (role), note, at (ms)`
 

@@ -1,4 +1,4 @@
-let photo2=null,wf='',pays=[],acctKey='',auditUn=null,db,user,uid=null,owner=false,raw=[],cases=[],roles={},cur=null,photo=null,mo=new Date().toISOString().slice(0,7);
+let parts=[],grns=[],mv=[],invOn=false,photo2=null,wf='',pays=[],acctKey='',auditUn=null,db,user,uid=null,owner=false,raw=[],cases=[],roles={},cur=null,photo=null,mo=new Date().toISOString().slice(0,7);
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const today=()=>new Date().toISOString().slice(0,10);
 const S={waiting:'Waiting for repair',repairing:'In repair',repaired:'Ready for pickup',swap_todo:'Swap: to send',swap_sent:'Swap: at factory',swap_done:'Swapped: ready for pickup',delivered:'Delivered',archived:'Archived'};
@@ -9,10 +9,11 @@ const me=()=>(roles[uid]&&roles[uid].label)||(owner?'owner':String(uid||'').slic
 const trk=c=>{const t=c.track||[];return `<div class="box hist"><b>📍 <span>Tracking</span></b>${t.length?t.map(e=>`<div>✓ <span>${EV[e.k]||esc(e.k)}</span> · ${esc(new Date(e.at).toLocaleString())} · ${esc(e.by)} (<span>${esc(e.role)}</span>)</div>`).join(''):'<div><span>No tracking events yet (older case).</span></div>'}</div>`};
 const wp=c=>c.warranty==='in'?'<span class="pill" style="color:var(--ok);border-color:var(--ok)">Warranty</span>':c.warranty==='out'?'<span class="pill" style="color:var(--wr);border-color:var(--wr)">Out of warranty</span>':'<span class="pill">Warranty ?</span>';
 const role=()=>owner?'admin':(roles[uid]&&roles[uid].role)||'guest';
-const can={edit:()=>['admin','technician'].includes(role()),arch:()=>['admin','manager'].includes(role()),adm:()=>role()==='admin',swap:()=>['admin','technician','manager'].includes(role()),pay:()=>['admin','manager','cashier'].includes(role()),money:()=>['admin','manager','cashier','technician','reception'].includes(role()),blocked:()=>['blocked','none'].includes(role()),rec:()=>['admin','reception'].includes(role()),ws:()=>['admin','technician'].includes(role())};
+const can={edit:()=>['admin','technician'].includes(role()),arch:()=>['admin','manager'].includes(role()),adm:()=>role()==='admin',swap:()=>['admin','technician','manager'].includes(role()),pay:()=>['admin','manager','cashier'].includes(role()),money:()=>['admin','manager','cashier','technician','reception'].includes(role()),blocked:()=>['blocked','none'].includes(role()),rec:()=>['admin','reception'].includes(role()),ws:()=>['admin','technician'].includes(role()),inv:()=>['admin','manager','technician'].includes(role())};
+const tot=c=>tot(c)+(+c.partsTotal||0);
 const money=n=>(Math.round((+n||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-const paidOf=id=>pays.filter(p=>p.caseId===id).reduce((a,p)=>a+p.amount,0),due=c=>c.warranty==='out'?Math.max(0,Math.round(((+c.charge||0)-paidOf(c.id))*100)/100):0;
-const pst=c=>{const ch=+c.charge||0,p=paidOf(c.id);return !ch?'nocharge':p>=ch?'paid':p>0?'partial':'unpaid'},PL={paid:'Paid',partial:'Partial',unpaid:'On hold',nocharge:'No price'};
+const paidOf=id=>pays.filter(p=>p.caseId===id).reduce((a,p)=>a+p.amount,0),due=c=>c.warranty==='out'?Math.max(0,Math.round((tot(c)-paidOf(c.id))*100)/100):0;
+const pst=c=>{const ch=tot(c),p=paidOf(c.id);return !ch?'nocharge':p>=ch?'paid':p>0?'partial':'unpaid'},PL={paid:'Paid',partial:'Partial',unpaid:'On hold',nocharge:'No price'};
 const pp=c=>can.money()&&c.warranty==='out'?`<span class="pill ${pst(c)==='nocharge'?'':pst(c)}">${PL[pst(c)]}</span>`:'';
 const ck=c=>(c.phone||'').replace(/\D/g,'')||('n:'+(c.customer||'').toLowerCase().trim());
 const norm=c=>{c={...c};if(c.status==='open')c.status=c.startedAt?'repairing':'waiting';if(c.status==='closed')c.status='delivered';
@@ -30,9 +31,9 @@ async function init(){
  setTimeout(()=>{if(role()!=='guest'&&!can.blocked())audit('opened app')},2500);
  head();
 }
-function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.pay()?'':'none';$('#tS').style.display=can.swap()?'':'none';$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay();dash()}
-function tab(t){[['D','dash'],['C','cases'],['S','swap'],['P','pay']].forEach(([k,i])=>{$('#'+i).style.display=k===t?'':'none';$('#t'+k).className=k===t?'on':''})}
-$('#tD').onclick=()=>tab('D');$('#tC').onclick=()=>tab('C');$('#wt').onclick=e=>{const b=e.target.closest('button');if(!b)return;wf=b.dataset.w;[...$('#wt').children].forEach(x=>x.className=x===b?'on':'');list()};$('#tS').onclick=()=>tab('S');$('#tP').onclick=()=>tab('P');$('#tk').addEventListener('input',e=>{$('#q').value=e.target.value;tab('C');list()});
+function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.pay()?'':'none';$('#tS').style.display=can.swap()?'':'none';$('#tI').style.display=can.inv()?'':'none';subInv();$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay();dash()}
+function tab(t){[['D','dash'],['C','cases'],['S','swap'],['P','pay'],['I','inv']].forEach(([k,i])=>{$('#'+i).style.display=k===t?'':'none';$('#t'+k).className=k===t?'on':''})}
+$('#tD').onclick=()=>tab('D');$('#tC').onclick=()=>tab('C');$('#wt').onclick=e=>{const b=e.target.closest('button');if(!b)return;wf=b.dataset.w;[...$('#wt').children].forEach(x=>x.className=x===b?'on':'');list()};$('#tS').onclick=()=>tab('S');$('#tP').onclick=()=>tab('P');$('#tI').onclick=()=>tab('I');$('#tk').addEventListener('input',e=>{$('#q').value=e.target.value;tab('C');list()});
 function list(){
  const q=$('#q').value.toLowerCase().trim(),st=$('#st').value,a=$('#d1').value,b=$('#d2').value;
  const r=cases.filter(c=>(!wf||(c.warranty||'')===wf)&&(!$('#lc').value||c.loc===$('#lc').value)&&(!st||c.status===st)&&(!a||c.openedAt>=a)&&(!b||c.openedAt<=b)&&(!q||[c.caseNo,c.customer,c.email,c.phone,c.imei,c.model,c.problem].join(' ').toLowerCase().includes(q))).sort((x,y)=>(y.openedAt+y.caseNo).localeCompare(x.openedAt+x.caseNo));
@@ -65,7 +66,7 @@ function dash(){dash0();filterDash()}
 function filterDash(){
  const r=role(),box=$('#dash');
  if(r==='cashier'){
-  const oc=cases.filter(c=>c.warranty==='out'),hold=oc.filter(c=>(+c.charge||0)>0&&due(c)>0),sum=a=>a.reduce((t,p)=>t+p.amount,0),nop=oc.filter(c=>!(+c.charge>0)&&c.status!=='archived').length;
+  const oc=cases.filter(c=>c.warranty==='out'),hold=oc.filter(c=>tot(c)>0&&due(c)>0),sum=a=>a.reduce((t,p)=>t+p.amount,0),nop=oc.filter(c=>!(tot(c)>0)&&c.status!=='archived').length;
   box.innerHTML=`<div class="top"><h2 style="margin:0">Month</h2><input type="month" id="mo" value="${mo}" style="width:auto"></div><div class="kp"><div class="k"><b>${money(sum(pays.filter(p=>(p.date||'').startsWith(mo))))}</b><span>Cash received this month</span></div><div class="k"><b style="color:var(--ok)">${money(sum(pays))}</b><span>Total cash received from out-of-warranty repairs</span></div><div class="k"><b class="${hold.length?'slow':''}">${money(hold.reduce((t,c)=>t+due(c),0))}</b><span>On hold (owed)</span></div><div class="k"><b>${hold.length}</b><span>Cases with a balance due</span></div><div class="k"><b>${new Set(hold.map(ck)).size}</b><span>Customers owing</span></div><div class="k"><b>${nop}</b><span>Out-of-warranty cases without a price</span></div></div>`;return}
  const v=DV[r];if(!v)return;
  box.querySelectorAll('.k').forEach(k=>{if(k.closest('.box'))return;const t=k.querySelector('span').textContent;if(!v.k.some(x=>t.startsWith(x)))k.remove()});
@@ -103,7 +104,7 @@ ${c.photo?`<div class="mu">📷 <span>Reception photo</span></div><img class="ph
 <div class="box"><b>${esc(c.customer)}</b> <span class="mu">${esc(c.phone)}${c.email?' · '+esc(c.email):''}</span><div>${esc(c.type)} · ${esc(c.model)}</div><div class="mu"><span>IMEI / serial:</span> ${esc(c.imei||'—')} · <span>Received</span> ${esc(c.openedAt)}</div><div style="margin-top:8px"><span class="mu">Problem:</span> ${esc(c.problem)}</div>
 <div class="mu" style="margin-top:8px"><span>Started</span> ${esc(c.startedAt||'—')} · <span>Repaired</span> ${esc(c.repairedAt||'—')}${c.outcome?` (<span>${c.outcome==='success'?'success':'unrepairable'}</span>)`:''} · <span>Returned</span> ${esc(c.returnDate||'—')}</div></div>
 ${c.swapAt?`<div class="box"><h2>🔄 Swap case</h2><div class="g2"><div><b>Old phone</b><div>${esc(c.model)}</div><div class="mu">IMEI ${esc(c.imei||'—')}</div></div><div><b>New phone</b><div>${esc(c.newModel||'—')}</div><div class="mu">IMEI ${esc(c.newImei||'—')}</div></div></div><div class="mu" style="margin-top:8px">${c.swapReason?'<span>Reason:</span> '+esc(c.swapReason)+' · ':''}<span>Assigned</span> ${esc(c.swapAt)} · <span>Sent</span> ${esc(c.sentAt||'—')}${c.swapRef?' ('+esc(c.swapRef)+')':''} · <span>Swapped</span> ${esc(c.swappedAt||'—')}</div></div>`:''}
-${trk(c)}${wbox(c)}${pb}<div class="box"><label style="margin-top:0">Repair information</label><textarea id="e_r" ${ro}>${esc(c.repairInfo)}</textarea>
+${trk(c)}${wbox(c)}${pbox(c)}${pb}<div class="box"><label style="margin-top:0">Repair information</label><textarea id="e_r" ${ro}>${esc(c.repairInfo)}</textarea>
 <div class="g2"><div><label>Parts used</label><input id="e_p" value="${esc(c.parts)}" ${ro}></div><div><label>Cost</label><input id="e_c" value="${esc(c.cost)}" ${ro}></div></div>
 <label>Technician</label><input id="e_t" value="${esc(c.tech)}" ${ro}>
 ${s==='repairing'&&ed?`<label>Photo after repair (required to finish)</label>${pick('pv2')}`:''}
@@ -147,6 +148,63 @@ async function scan(id){
  $('#rf').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{fin(await h.scanFile(f,false))}catch(x){$('#rs').textContent='No barcode found in the photo. Try again closer.'}};
  try{await h.start({facingMode:'environment'},{fps:10,qrbox:{width:280,height:140}},t=>fin(t),()=>{})}catch(e){$('#rs').textContent='Cannot start the camera. Use "Scan from a photo" or type it.'}
 }
+const newId=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const MK={consume:'Consumed',defect:'Defective',defect_case:'Returned from repair as defective',sendback:'Sent to warehouse'};
+const sumMv=(id,k)=>mv.filter(m=>m.partId===id&&m.k===k).reduce((t,m)=>t+m.qty,0);
+const stk=p=>{const co=sumMv(p.id,'consume'),df=sumMv(p.id,'defect'),dc=sumMv(p.id,'defect_case'),sb=sumMv(p.id,'sendback');return{in:p.qtyIn,good:p.qtyIn-co-df,cons:co-dc,def:df+dc-sb,ret:sb}};
+function subInv(){if(!db||!can.inv()||invOn)return;invOn=true;
+ db.collection('parts').onSnapshot(s=>{parts=s.docs.map(d=>({id:d.id,...d.data()}));inv()},()=>{});
+ db.collection('grn').onSnapshot(s=>{grns=s.docs.map(d=>({id:d.id,...d.data()}));inv()},()=>{});
+ db.collection('stockmoves').onSnapshot(s=>{mv=s.docs.map(d=>({id:d.id,...d.data()}));inv()},()=>{})}
+async function mvAdd(p,k,q,x={}){const id=newId('m'),m={partId:p.id,k,qty:q,date:today(),at:Date.now(),by:role(),who:me(),note:'',caseId:'',caseNo:'',...x};await db.doc('stockmoves/'+id).set(m);mv.push({id,...m});return id}
+function inv(){
+ if(!can.inv())return;
+ const L=parts.map(p=>({p,s:stk(p)})),sm=f=>L.reduce((t,x)=>t+f(x),0);
+ $('#ik').innerHTML=`<div class="kp"><div class="k"><b>${money(sm(x=>x.p.qtyIn*x.p.unitCost))}</b><span>Incoming parts value</span></div><div class="k"><b>${sm(x=>x.p.qtyIn)}</b><span>Incoming parts quantity</span></div><div class="k"><b style="color:var(--ok)">${sm(x=>x.s.good)}</b><span>In stock (good)</span></div><div class="k"><b>${money(sm(x=>x.s.good*x.p.unitCost))}</b><span>In stock value</span></div><div class="k"><b class="${sm(x=>x.s.def)?'slow':''}">${sm(x=>x.s.def)}</b><span>Defective (to send back)</span></div><div class="k"><b>${sm(x=>x.s.cons)}</b><span>Consumed in repairs</span></div><div class="k"><b>${sm(x=>x.s.ret)}</b><span>Sent to main warehouse</span></div></div>`;
+ const g=[...grns].sort((a,b)=>(b.no||'').localeCompare(a.no||''));
+ $('#gn').innerHTML=g.length?tbl(['Note','Date','Lines','Value','Status','By'],g.map(n=>{const t=(n.lines||[]).reduce((a,l)=>a+l.qty*l.unit,0);return `<tr data-grn="${esc(n.id)}" style="cursor:pointer"><td><a href="#">${esc(n.no)}</a></td><td>${esc(n.date)}</td><td>${(n.lines||[]).length}</td><td>${money(t)}</td><td><span class="pill ${n.status==='confirmed'?'paid':'waiting'}"><span>${n.status==='confirmed'?'Confirmed':'Draft'}</span></span></td><td>${esc(n.by)}</td></tr>`}).join('')):'<div class="mu">No receiving notes yet.</div>';
+ const q=$('#iq').value.toLowerCase().trim(),f=$('#ist').value;
+ const rs=L.filter(x=>(!q||(x.p.name+' '+x.p.noteNo).toLowerCase().includes(q))&&(!f||(f==='good'?x.s.good>0:f==='def'?x.s.def>0:f==='cons'?x.s.cons>0:x.s.ret>0)));
+ $('#ls').innerHTML=rs.length?tbl(['Part','Note','Unit price','Qty received','Good','Defective','Consumed','Sent back'],rs.map(x=>`<tr data-lot="${esc(x.p.id)}" style="cursor:pointer"><td><b>${esc(x.p.name)}</b></td><td>${esc(x.p.noteNo)}</td><td>${money(x.p.unitCost)}</td><td>${x.s.in}</td><td>${x.s.good}</td><td class="${x.s.def?'slow':''}">${x.s.def}</td><td>${x.s.cons}</td><td>${x.s.ret}</td></tr>`).join('')):'<div class="mu">No parts in stock.</div>';
+}
+$('#inv').addEventListener('click',e=>{if(e.target.closest('a'))e.preventDefault();const n=e.target.closest('tr[data-grn]'),l=e.target.closest('tr[data-lot]');if(n)grnEdit(n.dataset.grn);else if(l)lotView(l.dataset.lot)});
+$('#iq').addEventListener('input',inv);$('#ist').addEventListener('change',inv);$('#ng').onclick=grnNew;
+function grnNew(){const d=today(),pre='GRN-'+d.slice(2,4)+d.slice(5,7)+'-',no=pre+String(grns.filter(g=>(g.no||'').startsWith(pre)).length+1).padStart(3,'0'),id='grn-'+no.slice(4).toLowerCase(),g={no,date:d,status:'draft',lines:[],ref:'',by:me(),role:role()};
+ db.doc('grn/'+id).set(g).then(()=>{grns.push({id,...g});audit('receiving note opened',no);grnEdit(id)},e=>toast('Failed: '+(e.code||e.message)))}
+function grnEdit(id){const g=grns.find(x=>x.id===id);if(!g)return;const dr=g.status==='draft',L=g.lines||[],t=L.reduce((a,l)=>a+l.qty*l.unit,0);
+ open_(`<div class="top"><h1>${esc(g.no)}</h1><span class="pill ${dr?'waiting':'paid'}"><span>${dr?'Draft':'Confirmed'}</span></span><span class="sp"></span><button onclick="shut()">Close ✕</button></div><div class="mu">${esc(g.date)} · ${esc(g.by)}</div>
+<div class="box">${L.length?tbl(['Part','Quantity','Unit price','Value',''],L.map((l,i)=>`<tr><td>${esc(l.name)}</td><td>${l.qty}</td><td>${money(l.unit)}</td><td>${money(l.qty*l.unit)}</td><td>${dr?`<button class="dng" onclick="grnDel('${id}',${i})">✕</button>`:''}</td></tr>`).join('')):'<div class="mu">No lines yet.</div>'}<div style="margin-top:8px"><b><span>Total</span>: ${money(t)}</b></div></div>
+${dr?`<div class="box"><div class="g2"><div><label>Part name</label><input id="gl_n"></div><div><label>Quantity</label><input id="gl_q" type="number" min="1" step="1" inputmode="numeric"></div></div><div class="g2"><div><label>Unit price</label><input id="gl_p" type="number" min="0" step="0.01" inputmode="decimal"></div><div style="display:flex;align-items:flex-end"><button class="pri" onclick="grnAdd('${id}')">Add line</button></div></div></div>
+<div class="row"><button class="pri" onclick="grnConfirm('${id}')">Confirm & close note</button><button class="dng" onclick="grnDrop('${id}')">Delete draft</button></div>`:''}`)}
+async function grnSave(id,lines){const g=grns.find(x=>x.id===id);try{await db.doc('grn/'+id).update({lines});g.lines=lines;grnEdit(id)}catch(e){toast('Failed: '+(e.code||e.message))}}
+function grnAdd(id){const g=grns.find(x=>x.id===id),n=val('gl_n'),q=parseInt(val('gl_q'),10),p=parseFloat(val('gl_p'));if(!n||!(q>0)||isNaN(p)||p<0)return toast('Part name, quantity and price are required');grnSave(id,[...(g.lines||[]),{name:n,qty:q,unit:Math.round(p*100)/100}])}
+function grnDel(id,i){const g=grns.find(x=>x.id===id);grnSave(id,(g.lines||[]).filter((_,k)=>k!==i))}
+async function grnDrop(id){if(!(await ask('Delete draft'+'?')))return;try{await db.doc('grn/'+id).delete();grns=grns.filter(x=>x.id!==id);inv();shut()}catch(e){toast('Failed: '+(e.code||e.message))}}
+async function grnConfirm(id){const g=grns.find(x=>x.id===id),L=g.lines||[];if(!L.length)return toast('Add at least one line first');
+ try{await Promise.all(L.map((l,i)=>db.doc('parts/'+id+'-'+i).set({name:l.name,qtyIn:l.qty,unitCost:l.unit,noteId:id,noteNo:g.no,date:today(),by:me()})));
+  await db.doc('grn/'+id).update({status:'confirmed',confirmedAt:today(),confirmedBy:me()});g.status='confirmed';audit('receiving note confirmed',g.no,money(L.reduce((a,l)=>a+l.qty*l.unit,0)));toast('Receiving note confirmed: parts added to stock');grnEdit(id)}catch(e){toast('Failed: '+(e.code||e.message))}}
+function lotView(id){const p=parts.find(x=>x.id===id);if(!p)return;const s=stk(p),hs=mv.filter(m=>m.partId===id).sort((a,b)=>(b.at||0)-(a.at||0));
+ open_(`<div class="top"><h1>${esc(p.name)}</h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><div class="mu">${esc(p.noteNo)} · ${money(p.unitCost)} · ${esc(p.date)}</div>
+<div class="kp" style="margin-top:10px"><div class="k"><b>${s.in}</b><span>Qty received</span></div><div class="k"><b style="color:var(--ok)">${s.good}</b><span>Good</span></div><div class="k"><b class="${s.def?'slow':''}">${s.def}</b><span>Defective</span></div><div class="k"><b>${s.cons}</b><span>Consumed</span></div><div class="k"><b>${s.ret}</b><span>Sent back</span></div></div>
+${s.good>0?`<div class="box"><h2>Mark defective</h2><div class="g2"><input id="lq1" type="number" min="1" max="${s.good}" value="1"><button class="dng" onclick="markDef('${id}')">Mark defective</button></div></div>`:''}
+${s.def>0?`<div class="box"><h2>Send to main warehouse</h2><div class="g2"><input id="lq2" type="number" min="1" max="${s.def}" value="${s.def}"><input id="lr2" placeholder="Reference (optional)"></div><div class="row"><button class="pri" onclick="sendBack('${id}')">Send to main warehouse</button></div></div>`:''}
+<div class="box"><h2>Movements</h2>${hs.length?`<div class="hist">${hs.map(m=>`<div>${esc(m.date)} · <span>${MK[m.k]||esc(m.k)}</span> · ${m.qty}${m.caseNo?' · '+esc(m.caseNo):''}${m.note?' · '+esc(m.note):''} · ${esc(m.who||m.by)}</div>`).join('')}</div>`:'<div class="mu">No movements yet.</div>'}</div>`)}
+async function markDef(id){const p=parts.find(x=>x.id===id),q=parseInt(val('lq1'),10);if(!(q>0))return toast('Enter a valid quantity');if(q>stk(p).good)return toast('Only '+stk(p).good+' in stock');
+ try{await mvAdd(p,'defect',q);audit('part marked defective',p.name,'x'+q);toast('Marked defective');lotView(id);inv()}catch(e){toast('Failed: '+(e.code||e.message))}}
+async function sendBack(id){const p=parts.find(x=>x.id===id),q=parseInt(val('lq2'),10);if(!(q>0)||q>stk(p).def)return toast('Not enough defective parts');
+ try{await mvAdd(p,'sendback',q,{note:val('lr2')});audit('sent to main warehouse',p.name,'x'+q);toast('Sent to the main warehouse');lotView(id);inv()}catch(e){toast('Failed: '+(e.code||e.message))}}
+function pbox(c){
+ const L=c.partLines||[];if(!can.money()||(c.warranty!=='out'&&!L.length))return '';
+ const ed=can.inv()&&c.warranty==='out'&&['waiting','repairing','repaired'].includes(c.status),opts=parts.map(p=>({p,g:stk(p).good})).filter(x=>x.g>0);
+ return `<div class="box"><h2>🔩 <span>Parts used</span></h2>${L.length?tbl(['Part','Quantity','Unit price','Value',''],L.map(l=>`<tr><td>${esc(l.name)}</td><td>${l.qty}</td><td>${money(l.unit)}</td><td>${money(l.qty*l.unit)}</td><td>${ed?`<button class="dng" onclick="retPart('${esc(l.mid)}')"><span>Return as defective</span></button>`:''}</td></tr>`).join('')):'<div class="mu">No parts used.</div>'}${L.length?`<div style="margin-top:8px"><b><span>Total</span>: ${money(c.partsTotal)}</b></div>`:''}
+${ed?`<div class="g2"><div><label>Part</label><select id="pu_p"><option value="">Select a part…</option>${opts.map(x=>`<option value="${esc(x.p.id)}">${esc(x.p.name)} · ${money(x.p.unitCost)} (${x.g})</option>`).join('')}</select></div><div><label>Quantity</label><input id="pu_q" type="number" min="1" step="1" value="1" inputmode="numeric"></div></div><div class="row"><button class="pri" onclick="usePart()">Use part</button></div>`:''}</div>`}
+async function usePart(){const c=cur,p=parts.find(x=>x.id===val('pu_p')),q=parseInt(val('pu_q'),10);
+ if(!p)return toast('Select a part');if(!(q>0))return toast('Enter a valid quantity');if(c.warranty!=='out')return toast('Parts are only used on out-of-warranty repairs');if(q>stk(p).good)return toast('Only '+stk(p).good+' in stock');
+ try{const mid=await mvAdd(p,'consume',q,{caseId:c.id,caseNo:c.caseNo}),lines=[...(c.partLines||[]),{mid,partId:p.id,name:p.name,qty:q,unit:p.unitCost,at:today(),by:me()}],total=Math.round(lines.reduce((t,x)=>t+x.qty*x.unit,0)*100)/100;
+  await db.doc('cases/'+c.id).update({partLines:lines,partsTotal:total,history:[...(c.history||[]),`${today()} · ${role()} · part used: ${p.name} x${q}`]});audit('part used',c.caseNo,p.name+' x'+q);toast('Part added to the repair price');refresh()}catch(e){toast('Failed: '+(e.code||e.message))}}
+async function retPart(mid){const c=cur,l=(c.partLines||[]).find(x=>x.mid===mid),p=l&&parts.find(x=>x.id===l.partId);if(!p)return toast('Failed');
+ const lines=c.partLines.filter(x=>x.mid!==mid),total=Math.round(lines.reduce((t,x)=>t+x.qty*x.unit,0)*100)/100;
+ try{await mvAdd(p,'defect_case',l.qty,{caseId:c.id,caseNo:c.caseNo});await db.doc('cases/'+c.id).update({partLines:lines,partsTotal:total,history:[...(c.history||[]),`${today()} · ${role()} · part returned as defective: ${l.name} x${l.qty}`]});audit('part returned as defective',c.caseNo,l.name+' x'+l.qty);toast('Part returned as defective');refresh()}catch(e){toast('Failed: '+(e.code||e.message))}}
 async function deliver(){const d=val('e_d');if(!d)return toast('Enter the return date');const c=cur,b=can.money()?due(c):0;
  if(b>0&&!(await ask('This customer still owes '+money(b)+'. Return the phone anyway? The balance stays on their account.')))return;
  run({status:'delivered',returnDate:d,loc:'customer',__ev:'returned'},'returned to customer'+(b>0?' (balance '+money(b)+' unpaid)':''))}
@@ -191,9 +249,9 @@ async function setWarranty(){
  if(await run({warranty:n,warrantyLog:[...(c.warrantyLog||[]),d]},'warranty changed to '+(n==='out'?'out of warranty':'under warranty')+': '+r,1))refresh()}
 function payBox(c){
  if(!can.money()||c.warranty!=='out')return '';
- const ch=+c.charge||0,pd=paidOf(c.id),bal=due(c),cp=pays.filter(p=>p.caseId===c.id).sort((a,b)=>(b.at||0)-(a.at||0)),k=pst(c);
- return `<div class="box"><h2>💵 Payment (cash)</h2><div class="g2"><div><label style="margin-top:0">Price charged</label><input id="e_ch" type="number" min="0" step="0.01" value="${ch||''}"></div><div style="display:flex;align-items:flex-end"><button onclick="saveCharge()">Save price</button></div></div>
-<div style="margin-top:8px"><span class="pill ${k==='nocharge'?'':k}">${PL[k]}</span> <span>Paid</span> <b>${money(pd)}</b> <span>of</span> ${money(ch)} · <span>Balance</span> <b class="${bal>0?'slow':''}">${money(bal)}</b></div>
+ const ch=tot(c),pd=paidOf(c.id),bal=due(c),cp=pays.filter(p=>p.caseId===c.id).sort((a,b)=>(b.at||0)-(a.at||0)),k=pst(c);
+ return `<div class="box"><h2>💵 Payment (cash)</h2><div class="g2"><div><label style="margin-top:0">Price charged</label><input id="e_ch" type="number" min="0" step="0.01" value="${c.charge||''}"></div><div style="display:flex;align-items:flex-end"><button onclick="saveCharge()">Save price</button></div></div>
+${c.partsTotal?`<div class="mu" style="margin-top:6px">🔩 <span>Parts</span>: ${money(c.partsTotal)}</div>`:''}<div style="margin-top:8px"><span class="pill ${k==='nocharge'?'':k}">${PL[k]}</span> <span>Paid</span> <b>${money(pd)}</b> <span>of</span> ${money(ch)} · <span>Balance</span> <b class="${bal>0?'slow':''}">${money(bal)}</b></div>
 ${can.pay()&&bal>0?`<div class="g2"><div><label>Amount received (cash)</label><input id="e_pa" type="number" min="0" step="0.01" value="${bal}"></div><div><label>Note</label><input id="e_pn"></div></div><div class="row"><button class="pri" onclick="recv()">Receive cash payment</button></div>`:''}
 ${cp.length?`<div class="hist" style="margin-top:8px">${cp.map(p=>`<div>${esc(p.date)} · ${money(p.amount)} · ${esc(p.by)}${p.note?' · '+esc(p.note):''}</div>`).join('')}</div>`:''}</div>`}
 const refresh=()=>setTimeout(()=>{if($('#ov').classList.contains('on')&&cur)detail(cur.id)},400);
@@ -202,12 +260,12 @@ async function takePay(items,note){try{await Promise.all(items.map(([c,a],i)=>db
 async function recv(){const c=cur,a=parseFloat(val('e_pa')),d=due(c);if(!(a>0))return toast('Enter the amount received');if(a>d+0.001)return toast('More than the balance due ('+money(d)+')');if(await takePay([[c,a]],val('e_pn')))refresh()}
 function pay(){
  if(!can.pay())return;
- const oc=cases.filter(c=>c.warranty==='out'),hold=oc.filter(c=>(+c.charge||0)>0&&due(c)>0).sort((a,b)=>(a.returnDate||a.openedAt).localeCompare(b.returnDate||b.openedAt)),nop=oc.filter(c=>!(+c.charge>0)&&c.status!=='archived').length;
+ const oc=cases.filter(c=>c.warranty==='out'),hold=oc.filter(c=>tot(c)>0&&due(c)>0).sort((a,b)=>(a.returnDate||a.openedAt).localeCompare(b.returnDate||b.openedAt)),nop=oc.filter(c=>!(tot(c)>0)&&c.status!=='archived').length;
  const pv=$('#pm').value,inP=pays.filter(p=>!pv||(p.date||'').startsWith(pv)),sum=a=>a.reduce((t,p)=>t+p.amount,0),onh=hold.reduce((t,c)=>t+due(c),0),L=(id,t)=>`<a href="#" data-id="${esc(id)}">${esc(t)}</a>`;
- const A={};oc.forEach(c=>{const k=ck(c),a=A[k]=A[k]||{k,n:'',ph:'',ch:0,pd:0,cs:0};a.ch+=+c.charge||0;a.pd+=paidOf(c.id);a.cs++;a.n=c.customer;a.ph=c.phone});
+ const A={};oc.forEach(c=>{const k=ck(c),a=A[k]=A[k]||{k,n:'',ph:'',ch:0,pd:0,cs:0};a.ch+=tot(c);a.pd+=paidOf(c.id);a.cs++;a.n=c.customer;a.ph=c.phone});
  const ac=Object.values(A).map(a=>({...a,bal:Math.max(0,Math.round((a.ch-a.pd)*100)/100)})).sort((x,y)=>y.bal-x.bal),q=$('#pq').value.toLowerCase().trim();
  $('#pk').innerHTML=`<div class="kp"><div class="k"><b style="color:var(--ok)">${money(sum(pays))}</b><span>Total cash received from out-of-warranty repairs</span></div><div class="k"><b>${money(sum(inP))}</b><span>Received ${pv||'(all time)'}</span></div><div class="k"><b class="${onh?'slow':''}">${money(onh)}</b><span>On hold (owed)</span></div><div class="k"><b>${hold.length}</b><span>Cases with a balance due</span></div><div class="k"><b>${ac.filter(a=>a.bal>0).length}</b><span>Customers owing</span></div><div class="k"><b>${nop}</b><span>Out-of-warranty cases without a price</span></div></div>`;
- $('#ph').innerHTML=hold.length?tbl(['Case','Customer','Phone','Status','Charged','Paid','Balance','Days'],hold.map(c=>`<tr><td>${L(c.id,c.caseNo)}</td><td>${esc(c.customer)}</td><td>${esc(c.phone)}</td><td class="${['delivered','archived'].includes(c.status)?'slow':''}">${S[c.status]}</td><td>${money(c.charge)}</td><td>${money(paidOf(c.id))}</td><td class="slow">${money(due(c))}</td><td>${f1(age(c.returnDate||c.openedAt))}</td></tr>`).join('')):'<div class="mu">No payments on hold.</div>';
+ $('#ph').innerHTML=hold.length?tbl(['Case','Customer','Phone','Status','Charged','Paid','Balance','Days'],hold.map(c=>`<tr><td>${L(c.id,c.caseNo)}</td><td>${esc(c.customer)}</td><td>${esc(c.phone)}</td><td class="${['delivered','archived'].includes(c.status)?'slow':''}">${S[c.status]}</td><td>${money(tot(c))}</td><td>${money(paidOf(c.id))}</td><td class="slow">${money(due(c))}</td><td>${f1(age(c.returnDate||c.openedAt))}</td></tr>`).join('')):'<div class="mu">No payments on hold.</div>';
  const fa=ac.filter(a=>!q||(a.n+' '+a.ph).toLowerCase().includes(q)).slice(0,100);
  $('#pa').innerHTML=fa.length?tbl(['Customer','Phone','Cases','Charged','Paid','Balance'],fa.map(a=>`<tr data-acct="${esc(a.k)}" style="cursor:pointer"><td>${esc(a.n)}</td><td>${esc(a.ph)}</td><td>${a.cs}</td><td>${money(a.ch)}</td><td>${money(a.pd)}</td><td class="${a.bal?'slow':''}">${money(a.bal)}</td></tr>`).join('')):'<div class="mu">No customer accounts.</div>';
  const rp=[...inP].sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,100);
@@ -219,11 +277,11 @@ $('#md').addEventListener('click',e=>{const a=e.target.closest('a[data-id]');if(
 async function voidPay(id){if(!(await ask('Void this payment record? The amount goes back on the customer balance.')))return;try{const p=pays.find(x=>x.id===id)||{};await db.doc('payments/'+id).delete();audit('payment voided',p.caseNo,money(p.amount));toast('Payment voided')}catch(e){toast('Failed: '+(e.code||e.message))}}
 function acct(k){
  const cs=cases.filter(c=>c.warranty==='out'&&ck(c)===k).sort((a,b)=>a.openedAt.localeCompare(b.openedAt));if(!cs.length)return;acctKey=k;
- const ids=new Set(cs.map(c=>c.id)),ps=pays.filter(p=>ids.has(p.caseId)).sort((a,b)=>(b.at||0)-(a.at||0)),ch=cs.reduce((t,c)=>t+(+c.charge||0),0),pd=cs.reduce((t,c)=>t+paidOf(c.id),0),bal=cs.reduce((t,c)=>t+due(c),0),L=c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`;
+ const ids=new Set(cs.map(c=>c.id)),ps=pays.filter(p=>ids.has(p.caseId)).sort((a,b)=>(b.at||0)-(a.at||0)),ch=cs.reduce((t,c)=>t+tot(c),0),pd=cs.reduce((t,c)=>t+paidOf(c.id),0),bal=cs.reduce((t,c)=>t+due(c),0),L=c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`;
  open_(`<div class="top"><h1>${esc(cs[cs.length-1].customer)}</h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><div class="mu">${esc(cs[0].phone||'no phone')}</div>
 <div class="kp" style="margin-top:10px"><div class="k"><b>${money(ch)}</b><span>Charged</span></div><div class="k"><b style="color:var(--ok)">${money(pd)}</b><span>Paid</span></div><div class="k"><b class="${bal>0?'slow':''}">${money(bal)}</b><span>Balance on account</span></div></div>
 ${can.pay()&&bal>0?`<div class="box"><h2>Receive cash on account</h2><div class="g2"><input id="a_a" type="number" min="0" step="0.01" value="${bal}"><input id="a_n" placeholder="Note"></div><div class="mu" style="margin-top:6px">Applied to the oldest unpaid cases first.</div><div class="row"><button class="pri" onclick="acctPay()">Receive cash</button></div></div>`:''}
-<div class="box"><h2>Cases</h2>${tbl(['Case','Device','Status','Charged','Paid','Balance'],cs.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.model)}</td><td>${S[c.status]}</td><td>${money(c.charge)}</td><td>${money(paidOf(c.id))}</td><td class="${due(c)?'slow':''}">${money(due(c))}</td></tr>`).join(''))}</div>
+<div class="box"><h2>Cases</h2>${tbl(['Case','Device','Status','Charged','Paid','Balance'],cs.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.model)}</td><td>${S[c.status]}</td><td>${money(tot(c))}</td><td>${money(paidOf(c.id))}</td><td class="${due(c)?'slow':''}">${money(due(c))}</td></tr>`).join(''))}</div>
 <div class="box"><h2>Payments</h2>${ps.length?`<div class="hist">${ps.map(p=>`<div>${esc(p.date)} · ${money(p.amount)} · ${esc(p.caseNo)} · ${esc(p.by)}${p.note?' · '+esc(p.note):''}</div>`).join('')}</div>`:'<div class="mu">No payments yet.</div>'}</div>`)}
 async function acctPay(){
  const cs=cases.filter(c=>c.warranty==='out'&&ck(c)===acctKey&&due(c)>0).sort((a,b)=>a.openedAt.localeCompare(b.openedAt));let a=parseFloat(val('a_a'));const tot=cs.reduce((t,c)=>t+due(c),0);
@@ -508,9 +566,66 @@ No barcode found in the photo. Try again closer.|Aucun code-barres trouvé. Rée
 Scanner unavailable (no internet?)|Scanner indisponible (pas d’internet ?)|الماسح غير متاح (لا اتصال؟)
 Cannot start the camera. Use "Scan from a photo" or type it.|Caméra indisponible. Utilisez « Scanner depuis une photo » ou saisissez.|تعذّر تشغيل الكاميرا. استخدم «مسح من صورة» أو اكتبه.
 Send back to workshop|Renvoyer à l’atelier|إعادة إلى الورشة
+📦 Inventory|📦 Stock|📦 المخزون
+Incoming parts value|Valeur des pièces reçues|قيمة القطع الواردة
+Incoming parts quantity|Quantité de pièces reçues|كمية القطع الواردة
+In stock (good)|En stock (bon état)|في المخزون (سليمة)
+In stock value|Valeur du stock|قيمة المخزون
+Defective (to send back)|Défectueuses (à renvoyer)|معيبة (للإرجاع)
+Consumed in repairs|Consommées en réparation|المستهلكة في الإصلاح
+Sent to main warehouse|Envoyées à l’entrepôt principal|أُرسلت إلى المستودع الرئيسي
++ New receiving note|+ Nouveau bon de réception|+ إشعار استلام جديد
+Add line|Ajouter une ligne|إضافة سطر
+Confirm & close note|Confirmer et clôturer le bon|تأكيد وإغلاق الإشعار
+Delete draft|Supprimer le brouillon|حذف المسودة
+Delete draft?|Supprimer le brouillon ?|حذف المسودة؟
+Mark defective|Marquer défectueuse|تحديد كمعيبة
+Send to main warehouse|Envoyer à l’entrepôt principal|إرسال إلى المستودع الرئيسي
+Use part|Utiliser la pièce|استخدام القطعة
+Return as defective|Retourner comme défectueuse|إرجاع كمعيبة
+1 · Receiving notes|1 · Bons de réception|1 · إشعارات الاستلام
+2 · Parts in stock|2 · Pièces en stock|2 · القطع في المخزون
+Movements|Mouvements|الحركات
+Part|Pièce|القطعة
+Unit price|Prix unitaire|سعر الوحدة
+Qty received|Qté reçue|الكمية المستلمة
+Good|Bon état|سليمة
+Defective|Défectueuse|معيبة
+Consumed|Consommée|مستهلكة
+Sent back|Renvoyée|أُعيدت
+Lines|Lignes|الأسطر
+Value|Valeur|القيمة
+Quantity|Quantité|الكمية
+Parts|Pièces|القطع
+Draft|Brouillon|مسودة
+Confirmed|Confirmé|مؤكد
+All parts|Toutes les pièces|كل القطع
+Good in stock|Bon état en stock|سليمة في المخزون
+Sent to warehouse|Envoyées à l’entrepôt|أُرسلت للمستودع
+Search part or note…|Rechercher pièce ou bon…|ابحث عن قطعة أو إشعار…
+Part name|Nom de la pièce|اسم القطعة
+Select a part…|Choisir une pièce…|اختر قطعة…
+Reference (optional)|Référence (facultatif)|مرجع (اختياري)
+No receiving notes yet.|Aucun bon de réception.|لا توجد إشعارات استلام.
+No parts in stock.|Aucune pièce en stock.|لا توجد قطع في المخزون.
+No movements yet.|Aucun mouvement.|لا توجد حركات.
+No parts used.|Aucune pièce utilisée.|لا توجد قطع مستخدمة.
+No lines yet.|Aucune ligne.|لا توجد أسطر.
+Returned from repair as defective|Retournée de réparation (défectueuse)|أُرجعت من الإصلاح كمعيبة
+Part name, quantity and price are required|Nom, quantité et prix obligatoires|الاسم والكمية والسعر إلزامية
+Add at least one line first|Ajoutez d’abord au moins une ligne|أضف سطرًا واحدًا على الأقل
+Receiving note confirmed: parts added to stock|Bon confirmé : pièces ajoutées au stock|تم تأكيد الإشعار: أُضيفت القطع إلى المخزون
+Select a part|Choisissez une pièce|اختر قطعة
+Parts are only used on out-of-warranty repairs|Pièces utilisées uniquement hors garantie|تُستخدم القطع فقط في الإصلاحات خارج الضمان
+Part added to the repair price|Pièce ajoutée au prix de la réparation|أُضيفت القطعة إلى سعر الإصلاح
+Part returned as defective|Pièce retournée comme défectueuse|أُرجعت القطعة كمعيبة
+Marked defective|Marquée défectueuse|تم تحديدها كمعيبة
+Sent to the main warehouse|Envoyée à l’entrepôt principal|أُرسلت إلى المستودع الرئيسي
+Enter a valid quantity|Saisissez une quantité valide|أدخل كمية صحيحة
+Not enough defective parts|Pas assez de pièces défectueuses|لا توجد قطع معيبة كافية
 The phone is not in the workshop|Le téléphone n’est pas à l’atelier|الهاتف ليس في الورشة
 Phone is with reception: resend it to the workshop first.|Le téléphone est à la réception : renvoyez-le d’abord à l’atelier.|الهاتف لدى الاستقبال: أعده أولًا إلى الورشة.`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
-const PAT=[[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
+const PAT=[[/^Only (\d+) in stock$/,(m,l)=>l==='fr'?'Seulement '+m[1]+' en stock':'المتوفر '+m[1]+' فقط'],[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
 [/^(Under warranty|Out of warranty) \((\d+)\)$/,(m,l)=>DICT[l][m[1]]+' ('+m[2]+')'],
 [/^(\d+) of (\d+) cases$/,(m,l)=>l==='fr'?m[1]+' sur '+m[2]+' dossiers':m[1]+' من '+m[2]+' ملف'],
 [/^Repair success rate \((\d+)\/(\d+) finished\)$/,(m,l)=>l==='fr'?`Taux de réussite (${m[1]}/${m[2]} terminés)`:`نسبة نجاح الإصلاح (${m[1]}/${m[2]} منتهية)`],
