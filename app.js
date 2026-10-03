@@ -1,4 +1,4 @@
-let parts=[],grns=[],mv=[],invOn=false,photo2=null,wf='',pays=[],acctKey='',auditUn=null,db,user,uid=null,owner=false,raw=[],cases=[],roles={},cur=null,photo=null,mo=new Date().toISOString().slice(0,7);
+let clients=[],acx=[],cliOn=false,selClient=null,parts=[],grns=[],mv=[],invOn=false,photo2=null,wf='',pays=[],acctKey='',auditUn=null,db,user,uid=null,owner=false,raw=[],cases=[],roles={},cur=null,photo=null,mo=new Date().toISOString().slice(0,7);
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const today=()=>new Date().toISOString().slice(0,10);
 const S={waiting:'Waiting for repair',repairing:'In repair',repaired:'Ready for pickup',swap_todo:'Swap: to send',swap_sent:'Swap: at factory',swap_done:'Swapped: ready for pickup',delivered:'Delivered',archived:'Archived'};
@@ -9,7 +9,7 @@ const me=()=>(roles[uid]&&roles[uid].label)||(owner?'owner':String(uid||'').slic
 const trk=c=>{const t=c.track||[];return `<div class="box hist"><b>📍 <span>Tracking</span></b>${t.length?t.map(e=>`<div>✓ <span>${EV[e.k]||esc(e.k)}</span> · ${esc(new Date(e.at).toLocaleString())} · ${esc(e.by)} (<span>${esc(e.role)}</span>)</div>`).join(''):'<div><span>No tracking events yet (older case).</span></div>'}</div>`};
 const wp=c=>c.warranty==='in'?'<span class="pill" style="color:var(--ok);border-color:var(--ok)">Warranty</span>':c.warranty==='out'?'<span class="pill" style="color:var(--wr);border-color:var(--wr)">Out of warranty</span>':'<span class="pill">Warranty ?</span>';
 const role=()=>owner?'admin':(roles[uid]&&roles[uid].role)||'guest';
-const can={edit:()=>['admin','technician'].includes(role()),arch:()=>['admin','manager'].includes(role()),adm:()=>role()==='admin',swap:()=>['admin','technician','manager'].includes(role()),pay:()=>['admin','manager','cashier'].includes(role()),money:()=>['admin','manager','cashier','technician','reception'].includes(role()),blocked:()=>['blocked','none'].includes(role()),rec:()=>['admin','reception'].includes(role()),ws:()=>['admin','technician'].includes(role()),inv:()=>['admin','manager','technician'].includes(role())};
+const can={edit:()=>['admin','technician'].includes(role()),arch:()=>['admin','manager'].includes(role()),adm:()=>role()==='admin',swap:()=>['admin','technician','manager'].includes(role()),pay:()=>['admin','manager','cashier','reception'].includes(role()),paytab:()=>['admin','manager','cashier'].includes(role()),cli:()=>['admin','manager','cashier','reception'].includes(role()),money:()=>['admin','manager','cashier','technician','reception'].includes(role()),blocked:()=>['blocked','none'].includes(role()),rec:()=>['admin','reception'].includes(role()),ws:()=>['admin','technician'].includes(role()),inv:()=>['admin','manager','technician'].includes(role())};
 const tot=c=>tot(c)+(+c.partsTotal||0);
 const money=n=>(Math.round((+n||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const paidOf=id=>pays.filter(p=>p.caseId===id).reduce((a,p)=>a+p.amount,0),due=c=>c.warranty==='out'?Math.max(0,Math.round((tot(c)-paidOf(c.id))*100)/100):0;
@@ -31,9 +31,9 @@ async function init(){
  setTimeout(()=>{if(role()!=='guest'&&!can.blocked())audit('opened app')},2500);
  head();
 }
-function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.pay()?'':'none';$('#tS').style.display=can.swap()?'':'none';$('#tI').style.display=can.inv()?'':'none';subInv();$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay();dash()}
-function tab(t){[['D','dash'],['C','cases'],['S','swap'],['P','pay'],['I','inv']].forEach(([k,i])=>{$('#'+i).style.display=k===t?'':'none';$('#t'+k).className=k===t?'on':''})}
-$('#tD').onclick=()=>tab('D');$('#tC').onclick=()=>tab('C');$('#wt').onclick=e=>{const b=e.target.closest('button');if(!b)return;wf=b.dataset.w;[...$('#wt').children].forEach(x=>x.className=x===b?'on':'');list()};$('#tS').onclick=()=>tab('S');$('#tP').onclick=()=>tab('P');$('#tI').onclick=()=>tab('I');$('#tk').addEventListener('input',e=>{$('#q').value=e.target.value;tab('C');list()});
+function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.paytab()?'':'none';$('#tL').style.display=can.cli()?'':'none';subCli();$('#tS').style.display=can.swap()?'':'none';$('#tI').style.display=can.inv()?'':'none';subInv();$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay();dash()}
+function tab(t){[['D','dash'],['C','cases'],['S','swap'],['P','pay'],['I','inv'],['L','cli']].forEach(([k,i])=>{$('#'+i).style.display=k===t?'':'none';$('#t'+k).className=k===t?'on':''})}
+$('#tD').onclick=()=>tab('D');$('#tC').onclick=()=>tab('C');$('#wt').onclick=e=>{const b=e.target.closest('button');if(!b)return;wf=b.dataset.w;[...$('#wt').children].forEach(x=>x.className=x===b?'on':'');list()};$('#tS').onclick=()=>tab('S');$('#tP').onclick=()=>tab('P');$('#tI').onclick=()=>tab('I');$('#tL').onclick=()=>tab('L');$('#tk').addEventListener('input',e=>{$('#q').value=e.target.value;tab('C');list()});
 function list(){
  const q=$('#q').value.toLowerCase().trim(),st=$('#st').value,a=$('#d1').value,b=$('#d2').value;
  const r=cases.filter(c=>(!wf||(c.warranty||'')===wf)&&(!$('#lc').value||c.loc===$('#lc').value)&&(!st||c.status===st)&&(!a||c.openedAt>=a)&&(!b||c.openedAt<=b)&&(!q||[c.caseNo,c.customer,c.email,c.phone,c.imei,c.model,c.problem].join(' ').toLowerCase().includes(q))).sort((x,y)=>(y.openedAt+y.caseNo).localeCompare(x.openedAt+x.caseNo));
@@ -78,10 +78,10 @@ function filterDash(){
 $('#dash').addEventListener('input',e=>{if(e.target.id==='mo'&&e.target.value){mo=e.target.value;dash()}});
 $('#dash').addEventListener('click',e=>{const k=e.target.closest('[data-go]'),a=e.target.closest('a[data-id]');if(a){e.preventDefault();detail(a.dataset.id)}else if(k){$('#st').value=k.dataset.go;tab('C');list()}else{const l=e.target.closest('[data-loc]');if(l){$('#lc').value=l.dataset.loc;$('#st').value='';tab('C');list()}}});
 function open_(h){$('#md').innerHTML=h;$('#ov').classList.add('on')}
-function shut(){if(auditUn){auditUn();auditUn=null}$('#ov').classList.remove('on');cur=null;photo=null;photo2=null}
+function shut(){if(auditUn){auditUn();auditUn=null}$('#ov').classList.remove('on');cur=null;photo=null;photo2=null;selClient=null}
 $('#new').onclick=()=>{photo=null;open_(`<div class="top"><h1>New case</h1><span class="sp"></span><button onclick="shut()">Cancel</button></div>
-<label>Customer name *</label><input id="f_c"><div class="g2"><div><label>Customer phone</label><input id="f_p" type="tel"></div><div><label>Date received</label><input id="f_d" type="date" value="${today()}"></div></div>
-<div class="g2"><div><label>Type</label><select id="f_t"><option value="Phone">Phone</option><option value="Tablet">Tablet</option></select></div><div><label>Brand / model *</label><input id="f_m"></div></div>
+<label>Customer name *</label><input id="f_c" autocomplete="off"><div class="cs" id="cs"></div><div class="mu" id="cc" style="margin-top:4px"></div><div class="g2"><div><label>Customer phone</label><input id="f_p" type="tel" autocomplete="off"></div><div><label>Date received</label><input id="f_d" type="date" value="${today()}"></div></div>
+<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="f_sv" checked style="width:auto"><span>Save as a client</span></label><div class="g2"><div><label>Type</label><select id="f_t"><option value="Phone">Phone</option><option value="Tablet">Tablet</option></select></div><div><label>Brand / model *</label><input id="f_m"></div></div>
 <div class="mu" style="margin-top:8px">🛡 <span>Under warranty by default; the repair team can change it.</span></div>
 <label>IMEI / serial</label><div class="sf"><input id="f_i" inputmode="numeric"><button type="button" class="pri" onclick="scan('f_i')">📷 <span>Scan</span></button></div><label>Problem *</label><textarea id="f_pr"></textarea>
 <label>Photo of device (required)</label>${pick('pv')}
@@ -93,15 +93,17 @@ function shrink(f){return new Promise((res,rej)=>{const i=new Image(),u=URL.crea
 const val=id=>{const e=$('#'+id);return e?e.value.trim():''};
 async function create(){
  const c=val('f_c'),m=val('f_m'),p=val('f_pr');if(!can.rec())return toast('Not allowed');if(!c||!m||!p)return toast('Name, model and problem are required');if(!photo)return toast('Reception photo is required');
+ let cid=selClient||null;
+ if(!cid&&can.cli()){const dg=digits(val('f_p')),m=dg&&clients.find(x=>digits(x.phone)===dg);if(m)cid=m.id;else if($('#f_sv').checked){cid=newId('c');try{await db.doc('clients/'+cid).set({name:c,phone:val('f_p'),email:'',notes:'',date:today(),at:Date.now(),by:me()});audit('client created',c)}catch(e){cid=null}}}
  const no='R'+val('f_d').replace(/-/g,'').slice(2)+'-'+Math.floor(100+Math.random()*900);
- const o={caseNo:no,customer:c,phone:val('f_p'),type:$('#f_t').value,warranty:'in',warrantyLog:[],model:m,imei:val('f_i'),problem:p,openedAt:val('f_d')||today(),status:'waiting',loc:'reception',track:[mk('received')],photo:photo,photoDone:'',repairInfo:'',parts:'',cost:'',tech:'',startedAt:'',repairedAt:'',outcome:'',returnDate:'',history:[`${today()} · ${role()} · case opened`]};
+ const o={caseNo:no,customer:c,clientId:cid||'',phone:val('f_p'),type:$('#f_t').value,warranty:'in',warrantyLog:[],model:m,imei:val('f_i'),problem:p,openedAt:val('f_d')||today(),status:'waiting',loc:'reception',track:[mk('received')],photo:photo,photoDone:'',repairInfo:'',parts:'',cost:'',tech:'',startedAt:'',repairedAt:'',outcome:'',returnDate:'',history:[`${today()} · ${role()} · case opened`]};
  try{await db.doc('cases/'+no.toLowerCase()).set(o);audit('case opened',no);shut();toast('Case '+no+' opened')}catch(e){toast('Could not save: '+(e.code||e.message))}
 }
 function detail(id){
  const c=cases.find(x=>x.id===id);if(!c)return;cur=c;const live=['waiting','repairing','repaired','swap_todo','swap_sent','swap_done'].includes(c.status),ed=can.edit()&&live,ro=ed?'':'disabled',s=c.status,sw=can.swap(),pb=payBox(c),loc=c.loc;
  open_(`<div class="top"><h1>${esc(c.caseNo)}</h1><span class="pill ${s}">${S[s]}</span>${wp(c)}${lp(c)}<span class="sp"></span><button onclick="shut()">Close ✕</button></div>
 ${c.photo?`<div class="mu">📷 <span>Reception photo</span></div><img class="ph" src="${c.photo}">`:''}${c.photoDone?`<div class="mu" style="margin-top:8px">📷 <span>After-repair photo</span></div><img class="ph" src="${c.photoDone}">`:''}
-<div class="box"><b>${esc(c.customer)}</b> <span class="mu">${esc(c.phone)}${c.email?' · '+esc(c.email):''}</span><div>${esc(c.type)} · ${esc(c.model)}</div><div class="mu"><span>IMEI / serial:</span> ${esc(c.imei||'—')} · <span>Received</span> ${esc(c.openedAt)}</div><div style="margin-top:8px"><span class="mu">Problem:</span> ${esc(c.problem)}</div>
+<div class="box"><b>${esc(c.customer)}</b> <span class="mu">${esc(c.phone)}${c.email?' · '+esc(c.email):''}</span>${can.cli()&&cliOf(c)?` <a href="#" data-cli="${esc(cliOf(c).id)}">👤 <span>Client</span></a>`:''}<div>${esc(c.type)} · ${esc(c.model)}</div><div class="mu"><span>IMEI / serial:</span> ${esc(c.imei||'—')} · <span>Received</span> ${esc(c.openedAt)}</div><div style="margin-top:8px"><span class="mu">Problem:</span> ${esc(c.problem)}</div>
 <div class="mu" style="margin-top:8px"><span>Started</span> ${esc(c.startedAt||'—')} · <span>Repaired</span> ${esc(c.repairedAt||'—')}${c.outcome?` (<span>${c.outcome==='success'?'success':'unrepairable'}</span>)`:''} · <span>Returned</span> ${esc(c.returnDate||'—')}</div></div>
 ${c.swapAt?`<div class="box"><h2>🔄 Swap case</h2><div class="g2"><div><b>Old phone</b><div>${esc(c.model)}</div><div class="mu">IMEI ${esc(c.imei||'—')}</div></div><div><b>New phone</b><div>${esc(c.newModel||'—')}</div><div class="mu">IMEI ${esc(c.newImei||'—')}</div></div></div><div class="mu" style="margin-top:8px">${c.swapReason?'<span>Reason:</span> '+esc(c.swapReason)+' · ':''}<span>Assigned</span> ${esc(c.swapAt)} · <span>Sent</span> ${esc(c.sentAt||'—')}${c.swapRef?' ('+esc(c.swapRef)+')':''} · <span>Swapped</span> ${esc(c.swappedAt||'—')}</div></div>`:''}
 ${trk(c)}${wbox(c)}${pbox(c)}${pb}<div class="box"><label style="margin-top:0">Repair information</label><textarea id="e_r" ${ro}>${esc(c.repairInfo)}</textarea>
@@ -205,6 +207,58 @@ async function usePart(){const c=cur,p=parts.find(x=>x.id===val('pu_p')),q=parse
 async function retPart(mid){const c=cur,l=(c.partLines||[]).find(x=>x.mid===mid),p=l&&parts.find(x=>x.id===l.partId);if(!p)return toast('Failed');
  const lines=c.partLines.filter(x=>x.mid!==mid),total=Math.round(lines.reduce((t,x)=>t+x.qty*x.unit,0)*100)/100;
  try{await mvAdd(p,'defect_case',l.qty,{caseId:c.id,caseNo:c.caseNo});await db.doc('cases/'+c.id).update({partLines:lines,partsTotal:total,history:[...(c.history||[]),`${today()} · ${role()} · part returned as defective: ${l.name} x${l.qty}`]});audit('part returned as defective',c.caseNo,l.name+' x'+l.qty);toast('Part returned as defective');refresh()}catch(e){toast('Failed: '+(e.code||e.message))}}
+const digits=x=>String(x||'').replace(/\D/g,'');
+const cliOf=c=>c.clientId?clients.find(x=>x.id===c.clientId):(digits(c.phone)?clients.find(x=>digits(x.phone)===digits(c.phone)):null);
+const casesOf=k=>cases.filter(c=>{const o=cliOf(c);return o&&o.id===k.id});
+const cbal=id=>acx.filter(t=>t.clientId===id).reduce((a,t)=>a+(t.type==='topup'?t.amount:-t.amount),0);
+const LK={topup:'Top-up',withdraw:'Withdrawal',apply:'Paid from account',cash:'Cash payment'};
+function subCli(){if(!db||!can.cli()||cliOn)return;cliOn=true;
+ db.collection('clients').onSnapshot(s=>{clients=s.docs.map(d=>({id:d.id,...d.data()}));cliRender()},()=>{});
+ db.collection('acctx').onSnapshot(s=>{acx=s.docs.map(d=>({id:d.id,...d.data()}));cliRender()},()=>{})}
+async function acxAdd(type,clientId,amount,x={}){const id=newId('t'),t={clientId,type,amount:Math.round(amount*100)/100,date:today(),at:Date.now(),by:role(),who:me(),note:'',caseId:'',caseNo:'',...x};await db.doc('acctx/'+id).set(t);acx.push({id,...t});return id}
+async function payCase(c,a,src,note,k){const id=newId('p'),p={caseId:c.id,caseNo:c.caseNo,customer:c.customer,phone:c.phone||'',ck:ck(c),amount:Math.round(a*100)/100,date:today(),by:role(),note:note||'',at:Date.now(),src,clientId:k?k.id:''};
+ await db.doc('payments/'+id).set(p);pays.push({id,...p});if(src==='account')await acxAdd('apply',k.id,a,{caseId:c.id,caseNo:c.caseNo,note:id})}
+function cliRender(){
+ if(!can.cli())return;
+ const q=$('#clq').value.toLowerCase().trim(),R_=clients.map(k=>{const cs=casesOf(k);return{k,n:cs.length,act:cs.filter(c=>!['delivered','archived'].includes(c.status)).length,owed:cs.reduce((t,c)=>t+due(c),0),b:cbal(k.id)}});
+ const rs=R_.filter(x=>!q||(x.k.name+' '+(x.k.phone||'')).toLowerCase().includes(q)).sort((a,b)=>(a.k.name||'').localeCompare(b.k.name||''));
+ $('#clk').innerHTML=`<div class="kp"><div class="k"><b>${clients.length}</b><span>Clients</span></div><div class="k"><b>${R_.reduce((t,x)=>t+x.act,0)}</b><span>In progress</span></div><div class="k"><b class="${R_.some(x=>x.owed)?'slow':''}">${money(R_.reduce((t,x)=>t+x.owed,0))}</b><span>Total owed</span></div><div class="k"><b style="color:var(--ok)">${money(R_.reduce((t,x)=>t+x.b,0))}</b><span>Prepaid balance (all clients)</span></div></div>`;
+ $('#cll').innerHTML=rs.length?tbl(['Client','Phone','Cases','In progress','Owed','Account balance'],rs.map(x=>`<tr data-cl2="${esc(x.k.id)}" style="cursor:pointer"><td><b>${esc(x.k.name)}</b></td><td>${esc(x.k.phone)}</td><td>${x.n}</td><td>${x.act}</td><td class="${x.owed?'slow':''}">${money(x.owed)}</td><td>${money(x.b)}</td></tr>`).join('')):'<div class="mu">No clients yet.</div>';
+}
+$('#cli').addEventListener('click',e=>{const r=e.target.closest('tr[data-cl2]');if(r)clientView(r.dataset.cl2)});
+$('#clq').addEventListener('input',cliRender);$('#cln').onclick=()=>cliEdit();$('#cim').onclick=cliImport;
+function suggest(q){const bx=$('#cs');if(!bx)return;selClient=null;$('#cc').textContent='';const t=q.trim().toLowerCase(),d=digits(q);if(t.length<2){bx.innerHTML='';return}
+ bx.innerHTML=clients.filter(k=>(k.name||'').toLowerCase().includes(t)||(d.length>=3&&digits(k.phone).includes(d))).slice(0,6).map(k=>`<div data-cl="${esc(k.id)}"><b>${esc(k.name)}</b> · ${esc(k.phone||'')} <span class="mu">· ${casesOf(k).length} <span>Cases</span></span></div>`).join('')}
+$('#md').addEventListener('input',e=>{if(e.target.id==='f_c'||e.target.id==='f_p')suggest(e.target.value)});
+$('#md').addEventListener('click',e=>{const s2=e.target.closest('[data-cl]'),a=e.target.closest('a[data-cli]');
+ if(s2){const k=clients.find(x=>x.id===s2.dataset.cl);if(k){$('#f_c').value=k.name;$('#f_p').value=k.phone||'';selClient=k.id;$('#cs').innerHTML='';$('#cc').textContent='👤 Linked to client: '+k.name}}
+ else if(a){e.preventDefault();clientView(a.dataset.cli)}});
+function cliEdit(id){const k=id?clients.find(x=>x.id===id):{name:'',phone:'',email:'',notes:''};if(!k)return;
+ open_(`<div class="top"><h1><span>${id?'Edit':'+ New client'}</span></h1><span class="sp"></span><button onclick="${id?`clientView('${id}')`:'shut()'}">Cancel</button></div><div class="box"><label style="margin-top:0">Name *</label><input id="k_n" value="${esc(k.name)}"><label>Phone</label><input id="k_p" type="tel" value="${esc(k.phone)}"><label>Email</label><input id="k_e" type="email" value="${esc(k.email)}"><label>Notes</label><textarea id="k_t">${esc(k.notes)}</textarea><div class="row"><button class="pri" onclick="cliSave('${id||''}')">Save</button></div></div>`)}
+async function cliSave(id){const n=val('k_n'),p=val('k_p'),d=digits(p);if(!n)return toast('Client name is required');if(d&&clients.some(x=>x.id!==id&&digits(x.phone)===d))return toast('A client with this phone already exists');
+ const o={name:n,phone:p,email:val('k_e'),notes:val('k_t')};
+ try{if(id){await db.doc('clients/'+id).update(o);const k=clients.find(x=>x.id===id);Object.assign(k,o);audit('client edited',n);toast('Client saved');clientView(id)}else{const nid=newId('c');await db.doc('clients/'+nid).set({...o,date:today(),at:Date.now(),by:me()});clients.push({id:nid,...o});audit('client created',n);toast('Client saved');cliRender();clientView(nid)}}catch(e){toast('Failed: '+(e.code||e.message))}}
+async function cliImport(){const g={};cases.forEach(c=>{const d=digits(c.phone);if(d&&!cliOf(c)&&!g[d])g[d]={name:c.customer,phone:c.phone}});const L=Object.values(g);if(!L.length)return toast('Nothing to import');
+ try{await Promise.all(L.map(x=>db.doc('clients/'+newId('c')).set({name:x.name,phone:x.phone,email:'',notes:'',date:today(),at:Date.now(),by:me()})));audit('clients imported',String(L.length));toast('Clients imported')}catch(e){toast('Failed: '+(e.code||e.message))}}
+function clientView(id){const k=clients.find(x=>x.id===id);if(!k)return;
+ const cs=casesOf(k).sort((a,b)=>(b.openedAt||'').localeCompare(a.openedAt||'')),owed=cs.reduce((t,c)=>t+due(c),0),b=cbal(id),ids=new Set(cs.map(c=>c.id)),dueCs=cs.filter(c=>due(c)>0);
+ const led=[...acx.filter(t=>t.clientId===id).map(t=>({at:t.at,d:t.date,k:t.type,a:t.amount,c:t.caseNo,w:t.who||t.by,n:t.type==='apply'?'':t.note})),...pays.filter(p=>ids.has(p.caseId)&&p.src!=='account').map(p=>({at:p.at,d:p.date,k:'cash',a:p.amount,c:p.caseNo,w:p.by,n:p.note}))].sort((x,y)=>(y.at||0)-(x.at||0));
+ open_(`<div class="top"><h1>${esc(k.name)}</h1>${owed>0?`<span class="pill unpaid"><span>On hold</span></span>`:`<span class="pill paid"><span>Settled</span></span>`}<span class="sp"></span><button onclick="cliEdit('${id}')">Edit</button><button onclick="shut()">Close ✕</button></div>
+<div class="mu">${esc(k.phone||'')}${k.email?' · '+esc(k.email):''}${k.notes?' · '+esc(k.notes):''}</div>
+<div class="kp" style="margin-top:10px"><div class="k"><b style="color:var(--ok)">${money(b)}</b><span>Account balance</span></div><div class="k"><b class="${owed?'slow':''}">${money(owed)}</b><span>Owed</span></div><div class="k"><b>${cs.length}</b><span>Cases</span></div></div>
+<div class="box"><h2>Cases</h2>${cs.length?tbl(['Case','Device','IMEI','Status','Total','Balance'],cs.map(c=>`<tr><td><a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a></td><td>${esc(c.model)}</td><td>${esc(c.imei||'—')}</td><td><span class="pill ${c.status}">${S[c.status]}</span></td><td>${c.warranty==='out'?money(tot(c)):'—'}</td><td class="${due(c)?'slow':''}">${c.warranty==='out'?money(due(c)):'—'}</td></tr>`).join('')):'<div class="mu">No cases yet.</div>'}</div>
+${can.pay()?`<div class="box"><h2>Top up account</h2><div class="g2"><input id="ca_a" type="number" min="0" step="0.01" inputmode="decimal"><input id="ca_n" placeholder="Note"></div><div class="row"><button class="pri" onclick="cliTop('${id}')">Top up</button></div></div>
+<div class="box"><h2>Pay a case</h2><div class="g2"><select id="cp_c" onchange="cpFill()"><option value="">Select a case…</option>${dueCs.map(c=>`<option value="${esc(c.id)}" data-d="${due(c)}">${esc(c.caseNo)} · ${esc(c.model)} (${money(due(c))})</option>`).join('')}</select><input id="cp_a" type="number" min="0" step="0.01" inputmode="decimal"></div><div class="g2"><select id="cp_s"><option value="cash">Cash</option>${b>0?`<option value="account">Client account (${money(b)})</option>`:''}</select><input id="cp_n" placeholder="Note"></div><div class="row"><button class="pri" onclick="cliPay('${id}')">Record payment</button></div></div>
+<div class="box"><h2>Withdraw from account</h2><div class="g2"><input id="cw_a" type="number" min="0" step="0.01" inputmode="decimal" value="${b>0?b:''}"><input id="cw_n" placeholder="Note"></div><div class="row"><button class="dng" onclick="cliOut('${id}')">Withdraw from account</button></div></div>`:''}
+<div class="box"><h2>Account history</h2>${led.length?`<div class="hist">${led.map(x=>`<div>${esc(x.d)} · <span>${LK[x.k]}</span> · ${money(x.a)}${x.c?' · '+esc(x.c):''}${x.n?' · '+esc(x.n):''} · ${esc(x.w)}</div>`).join('')}</div>`:'<div class="mu">No history yet.</div>'}</div>`)}
+function cpFill(){const o=$('#cp_c').selectedOptions[0];if(o&&o.dataset.d)$('#cp_a').value=o.dataset.d}
+async function cliTop(id){const a=parseFloat(val('ca_a'));if(!(a>0))return toast('Enter a valid amount');
+ try{await acxAdd('topup',id,a,{note:val('ca_n')});audit('account top-up',(clients.find(x=>x.id===id)||{}).name,money(a));toast('Account updated');clientView(id);cliRender()}catch(e){toast('Failed: '+(e.code||e.message))}}
+async function cliOut(id){const a=parseFloat(val('cw_a'));if(!(a>0))return toast('Enter a valid amount');if(a>cbal(id)+0.001)return toast('Not enough balance on the account');
+ try{await acxAdd('withdraw',id,a,{note:val('cw_n')});audit('account withdrawal',(clients.find(x=>x.id===id)||{}).name,money(a));toast('Account updated');clientView(id);cliRender()}catch(e){toast('Failed: '+(e.code||e.message))}}
+async function cliPay(id){const k=clients.find(x=>x.id===id),c=cases.find(x=>x.id===val('cp_c')),a=parseFloat(val('cp_a')),src=val('cp_s');
+ if(!c)return toast('Select a case');if(!(a>0))return toast('Enter a valid amount');if(a>due(c)+0.001)return toast('More than the balance due ('+money(due(c))+')');if(src==='account'&&a>cbal(id)+0.001)return toast('Not enough balance on the account');
+ try{await payCase(c,a,src,val('cp_n'),k);audit(src==='account'?'payment from client account':'payment received',c.caseNo,money(a));toast('Cash payment recorded');clientView(id);cliRender()}catch(e){toast('Failed: '+(e.code||e.message))}}
 async function deliver(){const d=val('e_d');if(!d)return toast('Enter the return date');const c=cur,b=can.money()?due(c):0;
  if(b>0&&!(await ask('This customer still owes '+money(b)+'. Return the phone anyway? The balance stays on their account.')))return;
  run({status:'delivered',returnDate:d,loc:'customer',__ev:'returned'},'returned to customer'+(b>0?' (balance '+money(b)+' unpaid)':''))}
@@ -252,12 +306,14 @@ function payBox(c){
  const ch=tot(c),pd=paidOf(c.id),bal=due(c),cp=pays.filter(p=>p.caseId===c.id).sort((a,b)=>(b.at||0)-(a.at||0)),k=pst(c);
  return `<div class="box"><h2>💵 Payment (cash)</h2><div class="g2"><div><label style="margin-top:0">Price charged</label><input id="e_ch" type="number" min="0" step="0.01" value="${c.charge||''}"></div><div style="display:flex;align-items:flex-end"><button onclick="saveCharge()">Save price</button></div></div>
 ${c.partsTotal?`<div class="mu" style="margin-top:6px">🔩 <span>Parts</span>: ${money(c.partsTotal)}</div>`:''}<div style="margin-top:8px"><span class="pill ${k==='nocharge'?'':k}">${PL[k]}</span> <span>Paid</span> <b>${money(pd)}</b> <span>of</span> ${money(ch)} · <span>Balance</span> <b class="${bal>0?'slow':''}">${money(bal)}</b></div>
-${can.pay()&&bal>0?`<div class="g2"><div><label>Amount received (cash)</label><input id="e_pa" type="number" min="0" step="0.01" value="${bal}"></div><div><label>Note</label><input id="e_pn"></div></div><div class="row"><button class="pri" onclick="recv()">Receive cash payment</button></div>`:''}
+${can.pay()&&bal>0?`<div class="g2"><div><label>Amount received (cash)</label><input id="e_pa" type="number" min="0" step="0.01" value="${bal}"></div><div><label>Note</label><input id="e_pn"></div></div>${(()=>{const k=cliOf(c),b=k?cbal(k.id):0;return b>0?`<label>Pay from</label><select id="e_src"><option value="cash">Cash</option><option value="account">Client account (${money(b)})</option></select>`:''})()}<div class="row"><button class="pri" onclick="recv()">Receive cash payment</button></div>`:''}
 ${cp.length?`<div class="hist" style="margin-top:8px">${cp.map(p=>`<div>${esc(p.date)} · ${money(p.amount)} · ${esc(p.by)}${p.note?' · '+esc(p.note):''}</div>`).join('')}</div>`:''}</div>`}
 const refresh=()=>setTimeout(()=>{if($('#ov').classList.contains('on')&&cur)detail(cur.id)},400);
 async function saveCharge(){const v=parseFloat(val('e_ch'));if(isNaN(v)||v<0)return toast('Enter a valid price');if(await run({charge:v},'price set to '+money(v),1))refresh()}
 async function takePay(items,note){try{await Promise.all(items.map(([c,a],i)=>db.doc('payments/p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)+i).set({caseId:c.id,caseNo:c.caseNo,customer:c.customer,phone:c.phone||'',ck:ck(c),amount:Math.round(a*100)/100,date:today(),by:role(),note:note||'',at:Date.now()})));audit('payment received',items.map(([c])=>c.caseNo).join(', '),money(items.reduce((t,[,a])=>t+a,0)));toast('Cash payment recorded');return true}catch(e){toast('Failed: '+(e.code||e.message));return false}}
-async function recv(){const c=cur,a=parseFloat(val('e_pa')),d=due(c);if(!(a>0))return toast('Enter the amount received');if(a>d+0.001)return toast('More than the balance due ('+money(d)+')');if(await takePay([[c,a]],val('e_pn')))refresh()}
+async function recv(){const c=cur,a=parseFloat(val('e_pa')),d=due(c),src=val('e_src')||'cash';if(!(a>0))return toast('Enter the amount received');if(a>d+0.001)return toast('More than the balance due ('+money(d)+')');
+ if(src==='account'){const k=cliOf(c);if(!k||a>cbal(k.id)+0.001)return toast('Not enough balance on the account');try{await payCase(c,a,'account',val('e_pn'),k);audit('payment from client account',c.caseNo,money(a));toast('Cash payment recorded');refresh()}catch(e){toast('Failed: '+(e.code||e.message))}return}
+ if(await takePay([[c,a]],val('e_pn')))refresh()}
 function pay(){
  if(!can.pay())return;
  const oc=cases.filter(c=>c.warranty==='out'),hold=oc.filter(c=>tot(c)>0&&due(c)>0).sort((a,b)=>(a.returnDate||a.openedAt).localeCompare(b.returnDate||b.openedAt)),nop=oc.filter(c=>!(tot(c)>0)&&c.status!=='archived').length;
@@ -274,7 +330,7 @@ function pay(){
 $('#pay').addEventListener('click',e=>{const v=e.target.closest('[data-void]'),a=e.target.closest('a[data-id]'),r=e.target.closest('tr[data-acct]');if(v)voidPay(v.dataset.void);else if(a){e.preventDefault();detail(a.dataset.id)}else if(r)acct(r.dataset.acct)});
 $('#pay').addEventListener('input',e=>{if(e.target.id==='pq'||e.target.id==='pm')pay()});
 $('#md').addEventListener('click',e=>{const a=e.target.closest('a[data-id]');if(a){e.preventDefault();detail(a.dataset.id)}});
-async function voidPay(id){if(!(await ask('Void this payment record? The amount goes back on the customer balance.')))return;try{const p=pays.find(x=>x.id===id)||{};await db.doc('payments/'+id).delete();audit('payment voided',p.caseNo,money(p.amount));toast('Payment voided')}catch(e){toast('Failed: '+(e.code||e.message))}}
+async function voidPay(id){if(!(await ask('Void this payment record? The amount goes back on the customer balance.')))return;try{const p=pays.find(x=>x.id===id)||{};await db.doc('payments/'+id).delete();if(p.src==='account'&&p.clientId)await acxAdd('topup',p.clientId,p.amount,{note:'payment voided',caseId:p.caseId,caseNo:p.caseNo});audit('payment voided',p.caseNo,money(p.amount));toast('Payment voided')}catch(e){toast('Failed: '+(e.code||e.message))}}
 function acct(k){
  const cs=cases.filter(c=>c.warranty==='out'&&ck(c)===k).sort((a,b)=>a.openedAt.localeCompare(b.openedAt));if(!cs.length)return;acctKey=k;
  const ids=new Set(cs.map(c=>c.id)),ps=pays.filter(p=>ids.has(p.caseId)).sort((a,b)=>(b.at||0)-(a.at||0)),ch=cs.reduce((t,c)=>t+tot(c),0),pd=cs.reduce((t,c)=>t+paidOf(c.id),0),bal=cs.reduce((t,c)=>t+due(c),0),L=c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`;
@@ -623,9 +679,52 @@ Marked defective|Marquée défectueuse|تم تحديدها كمعيبة
 Sent to the main warehouse|Envoyée à l’entrepôt principal|أُرسلت إلى المستودع الرئيسي
 Enter a valid quantity|Saisissez une quantité valide|أدخل كمية صحيحة
 Not enough defective parts|Pas assez de pièces défectueuses|لا توجد قطع معيبة كافية
+👥 Clients|👥 Clients|👥 العملاء
++ New client|+ Nouveau client|+ عميل جديد
+Import from cases|Importer depuis les dossiers|استيراد من الملفات
+Search client name or phone…|Rechercher nom ou téléphone du client…|ابحث باسم العميل أو هاتفه…
+Clients|Clients|العملاء
+Client|Client|العميل
+In progress|En cours|قيد المعالجة
+Owed|Dû|المستحق
+Total owed|Total dû|إجمالي المستحق
+Account balance|Solde du compte|رصيد الحساب
+Prepaid balance (all clients)|Solde prépayé (tous les clients)|الرصيد المسبق (كل العملاء)
+Name *|Nom *|الاسم *
+Email|E-mail|البريد الإلكتروني
+Notes|Notes|ملاحظات
+Edit|Modifier|تعديل
+Save|Enregistrer|حفظ
+Save as a client|Enregistrer comme client|حفظ كعميل
+Settled|Réglé|مسدَّد
+Top up account|Créditer le compte|شحن الحساب
+Top up|Créditer|شحن
+Pay a case|Payer un dossier|دفع ملف
+Select a case…|Choisir un dossier…|اختر ملفًا…
+Record payment|Enregistrer le paiement|تسجيل الدفعة
+Withdraw from account|Retirer du compte|سحب من الحساب
+Account history|Historique du compte|سجل الحساب
+Top-up|Crédit|شحن
+Withdrawal|Retrait|سحب
+Paid from account|Payé depuis le compte|مدفوع من الحساب
+Cash payment|Paiement en espèces|دفعة نقدية
+Pay from|Payer avec|الدفع من
+Cash|Espèces|نقدًا
+No clients yet.|Aucun client.|لا يوجد عملاء.
+No history yet.|Aucun historique.|لا يوجد سجل.
+No cases yet.|Aucun dossier.|لا توجد ملفات.
+Client name is required|Le nom du client est obligatoire|اسم العميل مطلوب
+A client with this phone already exists|Un client avec ce téléphone existe déjà|يوجد عميل بهذا الهاتف
+Enter a valid amount|Saisissez un montant valide|أدخل مبلغًا صحيحًا
+Not enough balance on the account|Solde du compte insuffisant|رصيد الحساب غير كافٍ
+Select a case|Choisissez un dossier|اختر ملفًا
+Clients imported|Clients importés|تم استيراد العملاء
+Nothing to import|Rien à importer|لا شيء للاستيراد
+Client saved|Client enregistré|تم حفظ العميل
+Account updated|Compte mis à jour|تم تحديث الحساب
 The phone is not in the workshop|Le téléphone n’est pas à l’atelier|الهاتف ليس في الورشة
 Phone is with reception: resend it to the workshop first.|Le téléphone est à la réception : renvoyez-le d’abord à l’atelier.|الهاتف لدى الاستقبال: أعده أولًا إلى الورشة.`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
-const PAT=[[/^Only (\d+) in stock$/,(m,l)=>l==='fr'?'Seulement '+m[1]+' en stock':'المتوفر '+m[1]+' فقط'],[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
+const PAT=[[/^Client account \((.+)\)$/,(m,l)=>(l==='fr'?'Compte client (':'حساب العميل (')+m[1]+')'],[/^👤 Linked to client: (.+)$/,(m,l)=>(l==='fr'?'👤 Lié au client : ':'👤 مرتبط بالعميل: ')+m[1]],[/^Only (\d+) in stock$/,(m,l)=>l==='fr'?'Seulement '+m[1]+' en stock':'المتوفر '+m[1]+' فقط'],[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
 [/^(Under warranty|Out of warranty) \((\d+)\)$/,(m,l)=>DICT[l][m[1]]+' ('+m[2]+')'],
 [/^(\d+) of (\d+) cases$/,(m,l)=>l==='fr'?m[1]+' sur '+m[2]+' dossiers':m[1]+' من '+m[2]+' ملف'],
 [/^Repair success rate \((\d+)\/(\d+) finished\)$/,(m,l)=>l==='fr'?`Taux de réussite (${m[1]}/${m[2]} terminés)`:`نسبة نجاح الإصلاح (${m[1]}/${m[2]} منتهية)`],

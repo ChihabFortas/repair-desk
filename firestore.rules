@@ -13,6 +13,7 @@ service cloud.firestore {
         : exists(/databases/$(database)/documents/roles/$(me())) ? get(/databases/$(database)/documents/roles/$(me())).data.role
         : 'none';
     }
+    function cliRole() { return myRole() in ['admin','manager','cashier','reception']; }
     function invRole() { return myRole() in ['admin','manager','technician']; }
     function staff() { return myRole() in ['admin','reception','technician','manager','cashier']; }
     function active() { return staff() || myRole() == 'guest'; }
@@ -36,6 +37,7 @@ service cloud.firestore {
         && (!touches(['warranty','warrantyLog']) || myRole() in ['admin','technician'])
         && (!touches(['photo','photoDone','repairInfo','parts','cost','tech','startedAt','repairedAt','outcome']) || myRole() in ['admin','technician'])
         && (!touches(['charge']) || myRole() in ['admin','manager','cashier','technician'])
+        && (!touches(['clientId']) || myRole() in ['admin','reception','manager'])
         && (!touches(['partLines','partsTotal']) || invRole())
         && (!touches(['loc','track','returnDate']) || myRole() in ['admin','reception','technician'])
         && (!touches(['status']) || myRole() in ['admin','reception','technician','manager'])
@@ -61,10 +63,22 @@ service cloud.firestore {
       allow update, delete: if false;                                         // append-only history
     }
 
+    // ---------- clients and their prepaid accounts ----------
+    match /clients/{clientId} {
+      allow read: if cliRole();
+      allow create, update: if cliRole();
+      allow delete: if myRole() == 'admin';
+    }
+    match /acctx/{txId} {
+      allow read: if cliRole();
+      allow create: if cliRole();
+      allow update, delete: if false;                                         // append-only ledger
+    }
+
     // ---------- cash payments ----------
     match /payments/{paymentId} {
       allow read: if myRole() in ['admin','manager','cashier','technician','reception'];
-      allow create: if myRole() in ['admin','manager','cashier'];
+      allow create: if myRole() in ['admin','manager','cashier','reception'];
       allow update: if false;
       allow delete: if myRole() == 'admin';
     }

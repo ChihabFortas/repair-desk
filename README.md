@@ -30,7 +30,7 @@ Files
 2. Users → type each staff member's **Google email** (lowercase) + role → Save role. Roles: Reception team, Repair technician, Manager, Cashier, Admin, Suspended.
 3. Anyone signed in who has no role sees "No access". Add the email as `guest` for view-only.
 4. Tap your role badge at the top to see your sign-in ID (your email).
-5. Camera/gallery buttons and the IMEI barcode scanner work in the phone browser (HTTPS is required — GitHub Pages provides it; the scanner loads a small library from cdnjs, so it needs internet).
+5. Camera/gallery buttons work in the phone browser (HTTPS is required — GitHub Pages provides it).
 
 ## Good to know
 - Free limits (Spark): 50k reads / 20k writes per day, 1 GiB — plenty for one workshop.

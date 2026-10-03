@@ -21,6 +21,11 @@ Four collections. No indexes needed.
 | track | array | `{k,at(ms),by,role}` custody events |
 | history | array | text log lines |
 
+## Clients (admin, manager, cashier, reception)
+- `clients/{autoId}`: `name, phone, email, notes, date, at, by`. Cases link by `cases.clientId` (older cases match by phone number).
+- `acctx/{autoId}` append-only account ledger: `clientId, type (topup|withdraw|apply), amount, caseId, caseNo, date, at, by, who, note`. Balance = topups - withdrawals - applied payments.
+- `payments` also has `src` (`cash` or `account`) and `clientId`.
+
 ## Inventory (admin, manager, technician)
 - `grn/{grn-YYMM-NNN}` receiving note: `no, date, status (draft|confirmed), lines [{name, qty, unit}], by, confirmedAt, confirmedBy`. Confirmed notes are locked.
 - `parts/{noteId-lineIndex}` part lot created when a note is confirmed: `name, qtyIn, unitCost, noteId, noteNo, date, by`.
