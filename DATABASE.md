@@ -21,6 +21,9 @@ Four collections. No indexes needed.
 | track | array | `{k,at(ms),by,role}` custody events |
 | history | array | text log lines |
 
+## `settings/app` (admin writes, everyone reads)
+`waitDays, pickupDays, transitHours, factoryDays, lowStock, currency, shopName, notice`. Personal preferences (theme, accent, dashboard widgets) are stored per user in the browser.
+
 ## Clients (admin, manager, cashier, reception)
 - `clients/{autoId}`: `name, phone, email, notes, date, at, by`. Cases link by `cases.clientId` (older cases match by phone number).
 - `acctx/{autoId}` append-only account ledger: `clientId, type (topup|withdraw|apply), amount, caseId, caseNo, date, at, by, who, note`. Balance = topups - withdrawals - applied payments.

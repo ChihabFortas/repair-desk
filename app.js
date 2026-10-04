@@ -11,7 +11,7 @@ const wp=c=>c.warranty==='in'?'<span class="pill" style="color:var(--ok);border-
 const role=()=>owner?'admin':(roles[uid]&&roles[uid].role)||'guest';
 const can={edit:()=>['admin','technician'].includes(role()),arch:()=>['admin','manager'].includes(role()),adm:()=>role()==='admin',swap:()=>['admin','technician','manager'].includes(role()),pay:()=>['admin','manager','cashier','reception'].includes(role()),paytab:()=>['admin','manager','cashier'].includes(role()),cli:()=>['admin','manager','cashier','reception'].includes(role()),money:()=>['admin','manager','cashier','technician','reception'].includes(role()),blocked:()=>['blocked','none'].includes(role()),rec:()=>['admin','reception'].includes(role()),ws:()=>['admin','technician'].includes(role()),inv:()=>['admin','manager','technician'].includes(role())};
 const tot=c=>tot(c)+(+c.partsTotal||0);
-const money=n=>(Math.round((+n||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const money=n=>(Math.round((+n||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+(CFG.currency?' '+CFG.currency:'');
 const paidOf=id=>pays.filter(p=>p.caseId===id).reduce((a,p)=>a+p.amount,0),due=c=>c.warranty==='out'?Math.max(0,Math.round((tot(c)-paidOf(c.id))*100)/100):0;
 const pst=c=>{const ch=tot(c),p=paidOf(c.id);return !ch?'nocharge':p>=ch?'paid':p>0?'partial':'unpaid'},PL={paid:'Paid',partial:'Partial',unpaid:'On hold',nocharge:'No price'};
 const pp=c=>can.money()&&c.warranty==='out'?`<span class="pill ${pst(c)==='nocharge'?'':pst(c)}">${PL[pst(c)]}</span>`:'';
@@ -22,40 +22,41 @@ const dd=(a,b)=>a&&b?Math.max(0,(new Date(b)-new Date(a))/864e5):null,age=a=>dd(
 const avg=a=>{a=a.filter(x=>x!=null);return a.length?a.reduce((s,x)=>s+x,0)/a.length:null},f1=x=>x==null?'—':Math.round(x*10)/10+' d';
 function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',2800)}
 async function init(){
- try{db=await claude.use('db');user=await claude.use('user')}catch(e){}
+ try{db=wrapDb(await claude.use('db'));user=await claude.use('user')}catch(e){}
  if(!db){$('#off').style.display='block';head();dash();return}
- try{uid=user?await user.id():null;owner=user?await user.isOwner():false}catch(e){}
+ try{uid=user?await user.id():null;owner=user?await user.isOwner():false}catch(e){}loadPrefs();
  db.collection('roles').onSnapshot(s=>{roles={};s.docs.forEach(d=>roles[d.id]=d.data());head()},()=>{});
- db.collection('cases').onSnapshot(s=>{raw=s.docs.map(d=>({id:d.id,...d.data()}));cases=raw.map(norm);if(cur){const n=cases.find(x=>x.id===cur.id);if(n)cur=n}list();dash();swp();pay()},e=>toast('Database error: '+e.code));
+ db.collection('cases').onSnapshot(s=>{LOADED.cases=true;raw=s.docs.map(d=>({id:d.id,...d.data()}));cases=raw.map(norm);if(cur){const n=cases.find(x=>x.id===cur.id);if(n)cur=n}list();dash();swp();pay()},e=>toast('Database error: '+e.code));
  db.collection('payments').onSnapshot(s=>{pays=s.docs.map(d=>({id:d.id,...d.data()}));list();dash();pay()},()=>{});
+ db.collection('settings').onSnapshot(s=>{const d=s.docs.find(x=>x.id==='app');CFG={...CFG0,...(d?d.data():{})};applyCfg();dash();swp()},()=>{});
  setTimeout(()=>{if(role()!=='guest'&&!can.blocked())audit('opened app')},2500);
  head();
 }
 function head(){$('#role').textContent=role();$('#new').style.display=can.rec()?'':'none';$('#adm').style.display=can.adm()?'':'none';$('#tP').style.display=can.paytab()?'':'none';$('#tL').style.display=can.cli()?'':'none';subCli();$('#tS').style.display=can.swap()?'':'none';$('#tI').style.display=can.inv()?'':'none';subInv();$('#aud').style.display=can.adm()?'':'none';$('#lock').style.display=can.blocked()?'grid':'none';list();pay();dash()}
 function tab(t){[['D','dash'],['C','cases'],['S','swap'],['P','pay'],['I','inv'],['L','cli']].forEach(([k,i])=>{$('#'+i).style.display=k===t?'':'none';$('#t'+k).className=k===t?'on':''})}
 $('#tD').onclick=()=>tab('D');$('#tC').onclick=()=>tab('C');$('#wt').onclick=e=>{const b=e.target.closest('button');if(!b)return;wf=b.dataset.w;[...$('#wt').children].forEach(x=>x.className=x===b?'on':'');list()};$('#tS').onclick=()=>tab('S');$('#tP').onclick=()=>tab('P');$('#tI').onclick=()=>tab('I');$('#tL').onclick=()=>tab('L');$('#tk').addEventListener('input',e=>{$('#q').value=e.target.value;tab('C');list()});
-function list(){
+function list(){if(db&&!LOADED.cases){$('#list').innerHTML='<div class="mu" style="padding:16px;text-align:center">Loading…</div>';return}
  const q=$('#q').value.toLowerCase().trim(),st=$('#st').value,a=$('#d1').value,b=$('#d2').value;
  const r=cases.filter(c=>(!wf||(c.warranty||'')===wf)&&(!$('#lc').value||c.loc===$('#lc').value)&&(!st||c.status===st)&&(!a||c.openedAt>=a)&&(!b||c.openedAt<=b)&&(!q||[c.caseNo,c.customer,c.email,c.phone,c.imei,c.model,c.problem].join(' ').toLowerCase().includes(q))).sort((x,y)=>(y.openedAt+y.caseNo).localeCompare(x.openedAt+x.caseNo));
- $('#list').innerHTML=r.map(c=>`<div class="c" data-id="${esc(c.id)}">${c.photo?`<img class="th" src="${c.photo}">`:'<div class="th">no photo</div>'}<div class="m"><div><b>${esc(c.customer)}</b> · ${esc(c.model)}</div><div class="mu">${esc(c.caseNo)} · <span>IMEI</span> ${esc(c.imei||'—')} · ${esc(c.openedAt)}</div><div class="mu">${esc(c.problem)}</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${wp(c)}${pp(c)}<span class="pill ${c.status}">${S[c.status]}</span>${lp(c)}</div></div>`).join('');
+ $('#list').innerHTML=r.map(c=>rowTry(()=>`<div class="c" data-id="${esc(c.id)}">${c.photo?`<img class="th" src="${c.photo}">`:'<div class="th">no photo</div>'}<div class="m"><div><b>${esc(c.customer)}</b> · ${esc(c.model)}</div><div class="mu">${esc(c.caseNo)} · <span>IMEI</span> ${esc(c.imei||'—')} · ${esc(c.openedAt)}</div><div class="mu">${esc(c.problem)}</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${wp(c)}${pp(c)}<span class="pill ${c.status}">${S[c.status]}</span>${lp(c)}</div></div>`,c)).join('');
  {const b=$('#wt').children;b[1].textContent='Under warranty ('+cases.filter(c=>c.warranty==='in').length+')';b[2].textContent='Out of warranty ('+cases.filter(c=>c.warranty==='out').length+')'}
  $('#cnt').textContent=db?r.length+' of '+cases.length+' cases':'';
 }
-['q','st','lc','d1','d2'].forEach(i=>$('#'+i).addEventListener('input',list));
+['q','st','lc','d1','d2'].forEach(i=>$('#'+i).addEventListener('input',()=>list()));
 $('#list').addEventListener('click',e=>{const c=e.target.closest('.c');if(c)detail(c.dataset.id)});
 function dash0(){
  const n=s=>cases.filter(c=>c.status===s).length,inM=cases.filter(c=>(c.openedAt||'').startsWith(mo)),done=inM.filter(c=>c.repairedAt),ok=done.filter(c=>c.outcome==='success'),dl=inM.filter(c=>c.returnDate);
  const rt=avg(done.map(c=>dd(c.startedAt,c.repairedAt))),wt=avg(inM.map(c=>dd(c.openedAt,c.startedAt))),tt=avg(dl.map(c=>dd(c.openedAt,c.returnDate))),pd=avg(dl.map(c=>dd(c.repairedAt,c.returnDate)));
- const late=cases.filter(c=>c.status==='waiting'&&age(c.openedAt)>3),stuck=cases.filter(c=>c.status==='repaired'&&age(c.repairedAt)>3);
- const act=cases.filter(c=>!['delivered','archived'].includes(c.status)),miss=cases.filter(c=>['to_ws','to_rec'].includes(c.loc)&&c.track&&c.track.length&&(Date.now()-c.track[c.track.length-1].at)/36e5>24);const [y,m]=mo.split('-').map(Number),ms=[...Array(6)].map((_,i)=>new Date(Date.UTC(y,m-1-(5-i),1)).toISOString().slice(0,7)),cn=ms.map(k=>cases.filter(c=>(c.openedAt||'').startsWith(k)).length),mx=Math.max(1,...cn);
+ const late=cases.filter(c=>c.status==='waiting'&&age(c.openedAt)>CFG.waitDays),stuck=cases.filter(c=>c.status==='repaired'&&age(c.repairedAt)>CFG.pickupDays);
+ const act=cases.filter(c=>!['delivered','archived'].includes(c.status)),miss=cases.filter(c=>['to_ws','to_rec'].includes(c.loc)&&c.track&&c.track.length&&(Date.now()-c.track[c.track.length-1].at)/36e5>CFG.transitHours);const [y,m]=mo.split('-').map(Number),ms=[...Array(6)].map((_,i)=>new Date(Date.UTC(y,m-1-(5-i),1)).toISOString().slice(0,7)),cn=ms.map(k=>cases.filter(c=>(c.openedAt||'').startsWith(k)).length),mx=Math.max(1,...cn);
  const T={};done.forEach(c=>{const k=c.tech||'—';(T[k]=T[k]||[]).push(c)});
  const tot=done.length?Math.round(ok.length/done.length*100)+'%':'—';
  $('#dash').innerHTML=`<div class="kp"><div class="k" data-go="waiting"><b style="color:var(--wr)">${n('waiting')}</b><span>Received, waiting for repair</span></div><div class="k" data-go="repairing"><b style="color:var(--ac)">${n('repairing')}</b><span>Still in repair</span></div><div class="k" data-go="repaired"><b style="color:var(--ok)">${n('repaired')}</b><span>Repaired, not yet received by customer</span></div></div>
-<div class="box" style="margin-top:0"><h2>📍 <span>Where are the items?</span></h2><div class="kp" style="margin:0">${['reception','to_ws','workshop','to_rec'].map(k=>`<div class="k" data-loc="${k}"><b>${act.filter(c=>c.loc===k).length}</b><span>${LOC[k]}</span></div>`).join('')}</div>${miss.length?`<div class="mu" style="margin-top:8px"><b class="slow">⚠ <span>Possibly missing (not acknowledged for over 24 h):</span></b> ${miss.map(c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join(' · ')}</div>`:`<div class="mu" style="margin-top:8px">✓ <span>No unacknowledged handovers over 24 h</span></div>`}</div>
+<div class="box" style="margin-top:0"><h2>📍 <span>Where are the items?</span></h2><div class="kp" style="margin:0">${['reception','to_ws','workshop','to_rec'].map(k=>`<div class="k" data-loc="${k}"><b>${act.filter(c=>c.loc===k).length}</b><span>${LOC[k]}</span></div>`).join('')}</div>${miss.length?`<div class="mu" style="margin-top:8px"><b class="slow">⚠ <span>Possibly missing (not acknowledged for over ${CFG.transitHours} h):</span></b> ${miss.map(c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join(' · ')}</div>`:`<div class="mu" style="margin-top:8px">✓ <span>No unacknowledged handovers over 24 h</span></div>`}</div>
 <div class="top"><h2 style="margin:0">Month</h2><input type="month" id="mo" value="${mo}" style="width:auto"></div>
 <div class="kp"><div class="k"><b>${inM.length}</b><span>Phones received</span></div><div class="k"><b>${inM.filter(c=>c.swapAt).length}</b><span>Sent to swap (${inM.length?Math.round(inM.filter(c=>c.swapAt).length/inM.length*100):0}%)</span></div><div class="k"><b>${inM.filter(c=>c.warranty==='in').length} / ${inM.filter(c=>c.warranty==='out').length}</b><span>Under / out of warranty received</span></div>${can.pay()?`<div class="k"><b>${money(pays.filter(p=>(p.date||'').startsWith(mo)).reduce((a,p)=>a+p.amount,0))}</b><span>Cash received this month</span></div>`:''}<div class="k"><b>${tot}</b><span>Repair success rate (${ok.length}/${done.length} finished)</span></div><div class="k"><b>${f1(rt)}</b><span>Avg repair time (start → repaired)</span></div><div class="k"><b>${f1(wt)}</b><span>Avg wait before repair starts</span></div><div class="k"><b>${f1(tt)}</b><span>Avg turnaround (received → returned)</span></div><div class="k"><b>${f1(pd)}</b><span>Avg days waiting for pickup</span></div></div>
 <div class="box"><h2>Phones received per month</h2><div class="bars">${ms.map((k,i)=>`<div><span>${cn[i]}</span><i style="height:${cn[i]/mx*80}%"></i>${k.slice(2)}</div>`).join('')}</div></div>
-<div class="box"><h2>Needs attention</h2><div class="mu">Waiting over 3 days to start: <b class="slow">${late.length}</b>${late.slice(0,5).map(c=>` · <a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join('')}</div><div class="mu" style="margin-top:4px">Ready over 3 days, not picked up: <b class="slow">${stuck.length}</b>${stuck.slice(0,5).map(c=>` · <a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join('')}</div></div>
+<div class="box"><h2>Needs attention</h2><div class="mu">Waiting over ${CFG.waitDays} days to start: <b class="slow">${late.length}</b>${late.slice(0,5).map(c=>` · <a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join('')}</div><div class="mu" style="margin-top:4px">Ready over ${CFG.pickupDays} days, not picked up: <b class="slow">${stuck.length}</b>${stuck.slice(0,5).map(c=>` · <a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`).join('')}</div></div>
 <div class="box"><h2>By technician (finished this month)</h2><div class="sc"><table><tr><th>Technician</th><th>Repairs</th><th>Success</th><th>Avg repair</th></tr>${Object.entries(T).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.length}</td><td>${Math.round(v.filter(c=>c.outcome==='success').length/v.length*100)}%</td><td>${f1(avg(v.map(c=>dd(c.startedAt,c.repairedAt))))}</td></tr>`).join('')||'<tr><td colspan=4 class="mu">No finished repairs</td></tr>'}</table></div></div>
 <div class="box"><h2>Time per repair</h2><div class="sc"><table><tr><th>Case</th><th>Device</th><th>Result</th><th>Wait</th><th>Repair</th><th>Total</th></tr>${done.sort((a,b)=>b.repairedAt.localeCompare(a.repairedAt)).slice(0,20).map(c=>{const r=dd(c.startedAt,c.repairedAt);return `<tr><td><a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a></td><td>${esc(c.model)}</td><td>${c.outcome==='success'?'✓ repaired':'✗ unrepairable'}</td><td>${f1(dd(c.openedAt,c.startedAt))}</td><td class="${rt&&r>rt*1.5?'slow':''}">${f1(r)}</td><td>${f1(dd(c.openedAt,c.returnDate||c.repairedAt))}</td></tr>`}).join('')||'<tr><td colspan=6 class="mu">No finished repairs</td></tr>'}</table></div><div class="mu" style="margin-top:6px">Red = over 1.5× the month's average. Older cases without a start date show —.</div></div>`;
 }
@@ -170,7 +171,7 @@ function inv(){
  $('#ls').innerHTML=rs.length?tbl(['Part','Note','Unit price','Qty received','Good','Defective','Consumed','Sent back'],rs.map(x=>`<tr data-lot="${esc(x.p.id)}" style="cursor:pointer"><td><b>${esc(x.p.name)}</b></td><td>${esc(x.p.noteNo)}</td><td>${money(x.p.unitCost)}</td><td>${x.s.in}</td><td>${x.s.good}</td><td class="${x.s.def?'slow':''}">${x.s.def}</td><td>${x.s.cons}</td><td>${x.s.ret}</td></tr>`).join('')):'<div class="mu">No parts in stock.</div>';
 }
 $('#inv').addEventListener('click',e=>{if(e.target.closest('a'))e.preventDefault();const n=e.target.closest('tr[data-grn]'),l=e.target.closest('tr[data-lot]');if(n)grnEdit(n.dataset.grn);else if(l)lotView(l.dataset.lot)});
-$('#iq').addEventListener('input',inv);$('#ist').addEventListener('change',inv);$('#ng').onclick=grnNew;
+$('#iq').addEventListener('input',()=>inv());$('#ist').addEventListener('change',()=>inv());$('#ng').onclick=grnNew;
 function grnNew(){const d=today(),pre='GRN-'+d.slice(2,4)+d.slice(5,7)+'-',no=pre+String(grns.filter(g=>(g.no||'').startsWith(pre)).length+1).padStart(3,'0'),id='grn-'+no.slice(4).toLowerCase(),g={no,date:d,status:'draft',lines:[],ref:'',by:me(),role:role()};
  db.doc('grn/'+id).set(g).then(()=>{grns.push({id,...g});audit('receiving note opened',no);grnEdit(id)},e=>toast('Failed: '+(e.code||e.message)))}
 function grnEdit(id){const g=grns.find(x=>x.id===id);if(!g)return;const dr=g.status==='draft',L=g.lines||[],t=L.reduce((a,l)=>a+l.qty*l.unit,0);
@@ -226,7 +227,7 @@ function cliRender(){
  $('#cll').innerHTML=rs.length?tbl(['Client','Phone','Cases','In progress','Owed','Account balance'],rs.map(x=>`<tr data-cl2="${esc(x.k.id)}" style="cursor:pointer"><td><b>${esc(x.k.name)}</b></td><td>${esc(x.k.phone)}</td><td>${x.n}</td><td>${x.act}</td><td class="${x.owed?'slow':''}">${money(x.owed)}</td><td>${money(x.b)}</td></tr>`).join('')):'<div class="mu">No clients yet.</div>';
 }
 $('#cli').addEventListener('click',e=>{const r=e.target.closest('tr[data-cl2]');if(r)clientView(r.dataset.cl2)});
-$('#clq').addEventListener('input',cliRender);$('#cln').onclick=()=>cliEdit();$('#cim').onclick=cliImport;
+$('#clq').addEventListener('input',()=>cliRender());$('#cln').onclick=()=>cliEdit();$('#cim').onclick=cliImport;
 function suggest(q){const bx=$('#cs');if(!bx)return;selClient=null;$('#cc').textContent='';const t=q.trim().toLowerCase(),d=digits(q);if(t.length<2){bx.innerHTML='';return}
  bx.innerHTML=clients.filter(k=>(k.name||'').toLowerCase().includes(t)||(d.length>=3&&digits(k.phone).includes(d))).slice(0,6).map(k=>`<div data-cl="${esc(k.id)}"><b>${esc(k.name)}</b> · ${esc(k.phone||'')} <span class="mu">· ${casesOf(k).length} <span>Cases</span></span></div>`).join('')}
 $('#md').addEventListener('input',e=>{if(e.target.id==='f_c'||e.target.id==='f_p')suggest(e.target.value)});
@@ -270,12 +271,12 @@ function swapped(){const m=val('n_m'),i=val('n_i');if(!m)return toast('Enter the
 const selSet=new Set(),tbl=(h,r)=>`<div class="sc"><table><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr>${r}</table></div>`;
 function swp(){
  const td=cases.filter(c=>c.status==='swap_todo').sort((a,b)=>(a.swapAt||'').localeCompare(b.swapAt||'')),sn=cases.filter(c=>c.status==='swap_sent').sort((a,b)=>(a.sentAt||'').localeCompare(b.sentAt||'')),dn=cases.filter(c=>c.swappedAt).sort((a,b)=>b.swappedAt.localeCompare(a.swappedAt)).slice(0,40);
- const all=cases.filter(c=>c.swappedAt),fa=avg(all.map(c=>dd(c.sentAt,c.swappedAt))),old=sn.length?Math.max(...sn.map(c=>age(c.sentAt)||0)):null,over=sn.filter(c=>age(c.sentAt)>14).length;
+ const all=cases.filter(c=>c.swappedAt),fa=avg(all.map(c=>dd(c.sentAt,c.swappedAt))),old=sn.length?Math.max(...sn.map(c=>age(c.sentAt)||0)):null,over=sn.filter(c=>age(c.sentAt)>CFG.factoryDays).length;
  const L=c=>`<a href="#" data-id="${esc(c.id)}">${esc(c.caseNo)}</a>`;
- $('#swk').innerHTML=`<div class="kp"><div class="k"><b style="color:var(--wr)">${td.length}</b><span>Need to be sent to factory</span></div><div class="k"><b style="color:var(--ac)">${sn.length}</b><span>Sent, waiting for swap</span></div><div class="k"><b style="color:var(--ok)">${all.length}</b><span>Already swapped</span></div><div class="k"><b>${f1(fa)}</b><span>Avg time at factory</span></div><div class="k"><b class="${over?'slow':''}">${over}</b><span>At factory over 14 days${old!=null?' (oldest '+f1(old)+')':''}</span></div></div>`;
+ $('#swk').innerHTML=`<div class="kp"><div class="k"><b style="color:var(--wr)">${td.length}</b><span>Need to be sent to factory</span></div><div class="k"><b style="color:var(--ac)">${sn.length}</b><span>Sent, waiting for swap</span></div><div class="k"><b style="color:var(--ok)">${all.length}</b><span>Already swapped</span></div><div class="k"><b>${f1(fa)}</b><span>Avg time at factory</span></div><div class="k"><b class="${over?'slow':''}">${over}</b><span>At factory over ${CFG.factoryDays} days${old!=null?' (oldest '+f1(old)+')':''}</span></div></div>`;
  [...selSet].forEach(id=>{if(!td.find(c=>c.id===id))selSet.delete(id)});
  $('#swt').innerHTML=td.length?tbl(['','Case','Customer','Device','IMEI','Reason','Waiting'],td.map(c=>`<tr><td><input type="checkbox" data-sel="${esc(c.id)}" ${selSet.has(c.id)?'checked':''} style="width:auto"></td><td>${L(c)}</td><td>${esc(c.customer)}</td><td>${esc(c.model)}</td><td>${esc(c.imei)}</td><td>${esc(c.swapReason)}</td><td>${f1(age(c.swapAt))}</td></tr>`).join('')):'<div class="mu">Nothing waiting to be sent.</div>';
- $('#swa').innerHTML=sn.length?tbl(['Case','Customer','Device','IMEI','Sent','At factory','Ref'],sn.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.customer)}</td><td>${esc(c.model)}</td><td>${esc(c.imei)}</td><td>${esc(c.sentAt)}</td><td class="${age(c.sentAt)>14?'slow':''}">${f1(age(c.sentAt))}</td><td>${esc(c.swapRef)}</td></tr>`).join('')):'<div class="mu">No phones at the factory.</div>';
+ $('#swa').innerHTML=sn.length?tbl(['Case','Customer','Device','IMEI','Sent','At factory','Ref'],sn.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.customer)}</td><td>${esc(c.model)}</td><td>${esc(c.imei)}</td><td>${esc(c.sentAt)}</td><td class="${age(c.sentAt)>CFG.factoryDays?'slow':''}">${f1(age(c.sentAt))}</td><td>${esc(c.swapRef)}</td></tr>`).join('')):'<div class="mu">No phones at the factory.</div>';
  $('#swd').innerHTML=dn.length?tbl(['Case','Old phone','New phone','Swapped','At factory','Status'],dn.map(c=>`<tr><td>${L(c)}</td><td>${esc(c.model)}<br><span class="mu">${esc(c.imei)}</span></td><td>${esc(c.newModel)}<br><span class="mu">${esc(c.newImei)}</span></td><td>${esc(c.swappedAt)}</td><td>${f1(dd(c.sentAt,c.swappedAt))}</td><td>${S[c.status]}</td></tr>`).join('')):'<div class="mu">No swaps completed yet.</div>';
 }
 $('#swap').addEventListener('click',e=>{const a=e.target.closest('a[data-id]');if(a){e.preventDefault();detail(a.dataset.id)}});
@@ -723,14 +724,66 @@ Nothing to import|Rien à importer|لا شيء للاستيراد
 Client saved|Client enregistré|تم حفظ العميل
 Account updated|Compte mis à jour|تم تحديث الحساب
 The phone is not in the workshop|Le téléphone n’est pas à l’atelier|الهاتف ليس في الورشة
-Phone is with reception: resend it to the workshop first.|Le téléphone est à la réception : renvoyez-le d’abord à l’atelier.|الهاتف لدى الاستقبال: أعده أولًا إلى الورشة.`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
+Phone is with reception: resend it to the workshop first.|Le téléphone est à la réception : renvoyez-le d’abord à l’atelier.|الهاتف لدى الاستقبال: أعده أولًا إلى الورشة.
+Settings|Paramètres|الإعدادات
+My appearance|Mon apparence|مظهري
+Theme|Thème|السمة
+System|Système|النظام
+Light|Clair|فاتح
+Dark|Sombre|داكن
+Accent color|Couleur d’accent|لون التمييز
+Density|Densité|الكثافة
+Comfortable|Confortable|مريحة
+Compact|Compacte|مضغوطة
+Animations|Animations|الحركات
+On|Activées|مفعّلة
+Off|Désactivées|معطّلة
+Language|Langue|اللغة
+My dashboard|Mon tableau de bord|لوحتي
+Workshop settings (admin)|Paramètres de l’atelier (admin)|إعدادات الورشة (مدير)
+Waiting too long: days|Attente trop longue : jours|انتظار طويل: أيام
+Ready for pickup too long: days|Prêt non retiré trop longtemps : jours|جاهز دون استلام لمدة طويلة: أيام
+Handover not acknowledged: hours|Transfert non confirmé : heures|تسليم غير مؤكد: ساعات
+At factory too long: days|En usine trop longtemps : jours|لدى المصنع لمدة طويلة: أيام
+Low stock: units or fewer|Stock bas : unités ou moins|مخزون منخفض: وحدات أو أقل
+Currency (shown after amounts)|Devise (après les montants)|العملة (بعد المبالغ)
+Shop name (header)|Nom de l’atelier (en-tête)|اسم الورشة (الترويسة)
+Notice for all staff (shown on every dashboard)|Message pour tout le personnel (sur chaque tableau de bord)|إشعار لكل الموظفين (يظهر في كل لوحة)
+Save settings|Enregistrer les paramètres|حفظ الإعدادات
+Settings saved|Paramètres enregistrés|تم حفظ الإعدادات
+Alerts and notices|Alertes et avis|التنبيهات والإشعارات
+✓ Nothing urgent right now.|✓ Rien d’urgent pour le moment.|✓ لا شيء عاجل الآن.
+Phones by stage|Téléphones par étape|الهواتف حسب المرحلة
+Money overview|Vue d’ensemble financière|نظرة مالية
+Inventory snapshot|Aperçu du stock|لمحة عن المخزون
+Detailed numbers|Chiffres détaillés|الأرقام التفصيلية
+Collected|Encaissé|المحصّل
+repairs finished|réparations terminées|إصلاحات منتهية
+Swap|Échange|استبدال
+Could not display this view.|Affichage impossible.|تعذّر عرض هذه الصفحة.
+Reload|Recharger|إعادة تحميل
+Connecting…|Connexion…|جارٍ الاتصال…
+● Live|● En direct|● مباشر
+⚠ Offline|⚠ Hors ligne|⚠ غير متصل
+Handovers not acknowledged in time: check for missing items|Transferts non confirmés à temps : vérifiez les articles manquants|تسليمات لم تؤكَّد في الوقت: تحقق من القطع المفقودة
+Phones returned by the workshop: confirm you received them|Téléphones rendus par l’atelier : confirmez la réception|هواتف أعادتها الورشة: أكّد استلامها
+Repaired phones ready for customer pickup|Téléphones réparés prêts à être retirés|هواتف مُصلحة جاهزة لاستلام الزبون
+Phones sent to the workshop, waiting for their confirmation|Téléphones envoyés à l’atelier, en attente de confirmation|هواتف أُرسلت إلى الورشة بانتظار تأكيدها
+Phones to confirm as received in the workshop|Téléphones à confirmer comme reçus à l’atelier|هواتف يجب تأكيد استلامها في الورشة
+Phones waiting too long to start repair|Téléphones en attente trop longtemps|هواتف تنتظر بدء الإصلاح لفترة طويلة
+Repaired phones to hand over to reception|Téléphones réparés à remettre à la réception|هواتف مُصلحة لتسليمها للاستقبال
+Returned phones with an unpaid balance|Téléphones rendus avec solde impayé|هواتف مُسلَّمة برصيد غير مدفوع
+Phones to send to the factory|Téléphones à envoyer à l’usine|هواتف للإرسال إلى المصنع
+Swap phones at the factory for too long|Téléphones en échange en usine depuis trop longtemps|هواتف استبدال لدى المصنع لفترة طويلة
+Defective parts to send back to the main warehouse|Pièces défectueuses à renvoyer à l’entrepôt principal|قطع معيبة للإرجاع إلى المستودع الرئيسي
+Parts running low in stock|Pièces en stock bas|قطع مخزونها منخفض`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
 const PAT=[[/^Client account \((.+)\)$/,(m,l)=>(l==='fr'?'Compte client (':'حساب العميل (')+m[1]+')'],[/^👤 Linked to client: (.+)$/,(m,l)=>(l==='fr'?'👤 Lié au client : ':'👤 مرتبط بالعميل: ')+m[1]],[/^Only (\d+) in stock$/,(m,l)=>l==='fr'?'Seulement '+m[1]+' en stock':'المتوفر '+m[1]+' فقط'],[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
 [/^(Under warranty|Out of warranty) \((\d+)\)$/,(m,l)=>DICT[l][m[1]]+' ('+m[2]+')'],
 [/^(\d+) of (\d+) cases$/,(m,l)=>l==='fr'?m[1]+' sur '+m[2]+' dossiers':m[1]+' من '+m[2]+' ملف'],
 [/^Repair success rate \((\d+)\/(\d+) finished\)$/,(m,l)=>l==='fr'?`Taux de réussite (${m[1]}/${m[2]} terminés)`:`نسبة نجاح الإصلاح (${m[1]}/${m[2]} منتهية)`],
 [/^Sent to swap \((\d+)%\)$/,(m,l)=>(l==='fr'?'Envoyés en échange (':'أُرسلت للاستبدال (')+m[1]+'%)'],
 [/^Received (\d{4}-\d{2}|\(all time\))$/,(m,l)=>(l==='fr'?'Encaissé ':'المقبوض ')+(m[1][0]==='('?(l==='fr'?'(total)':'(الكل)'):m[1])],
-[/^At factory over 14 days(.*)$/,(m,l)=>(l==='fr'?'En usine depuis plus de 14 jours':'لدى المصنع أكثر من 14 يومًا')+m[1].replace('oldest',l==='fr'?'le plus ancien':'الأقدم').replace(/ d\)/,l==='fr'?' j)':' ي)')],
+[/^Waiting over (\d+) days to start:$/,(m,l)=>l==='fr'?`En attente depuis plus de ${m[1]} jours :`:`بانتظار البدء أكثر من ${m[1]} أيام:`],[/^Ready over (\d+) days, not picked up:$/,(m,l)=>l==='fr'?`Prêts depuis plus de ${m[1]} jours, non retirés :`:`جاهزة منذ أكثر من ${m[1]} أيام ولم تُستلم:`],[/^Possibly missing \(not acknowledged for over (\d+) h\):$/,(m,l)=>l==='fr'?`Peut-être manquants (non confirmés depuis plus de ${m[1]} h) :`:`ربما مفقودة (لم تُؤكَّد منذ أكثر من ${m[1]} ساعة):`],[/^At factory over (\d+) days(.*)$/,(m,l)=>(l==='fr'?`En usine depuis plus de ${m[1]} jours`:`لدى المصنع أكثر من ${m[1]} يومًا`)+m[2].replace('oldest',l==='fr'?'le plus ancien':'الأقدم').replace(/ d\)/,l==='fr'?' j)':' ي)')],
 [/^(Failed|Not allowed or failed|Could not save|Database error): (.*)$/,(m,l)=>(DICT[l][m[1]]||m[1])+' : '+m[2]],
 [/^Case (\S+) opened$/,(m,l)=>l==='fr'?'Dossier '+m[1]+' ouvert':'تم فتح الملف '+m[1]],
 [/^This customer still owes (.+)\. Return the phone anyway\? The balance stays on their account\.$/,(m,l)=>l==='fr'?`Ce client doit encore ${m[1]}. Rendre le téléphone quand même ? Le solde reste sur son compte.`:`على هذا الزبون ${m[1]} متبقٍ. هل تسلّم الهاتف رغم ذلك؟ يبقى الرصيد في حسابه.`],
@@ -745,4 +798,66 @@ function walk(root){el(root);const w=document.createTreeWalker(root,5);let n;whi
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===3)tx(n);else if(n.nodeType===1)walk(n)}))).observe(document.body,{childList:true,subtree:true});
 function setLang(l){LANG=l;try{localStorage.setItem('rd_lang',l)}catch(e){}document.documentElement.lang=l;document.documentElement.dir=l==='ar'?'rtl':'ltr';$('#lang').value=l;walk(document.body)}
 $('#lang').onchange=e=>setLang(e.target.value);
+const CFG0={waitDays:3,pickupDays:3,transitHours:24,factoryDays:14,lowStock:2,currency:'',shopName:'',notice:''};
+let CFG={...CFG0},PREF={theme:'system',accent:'teal',density:'comfortable',anim:'on',widgets:{}},detOpen=false,ACTIVE='D';
+const LOADED={cases:false};
+const ACC={teal:['#0d9488','#14b8a6'],blue:['#2563eb','#3b82f6'],indigo:['#4f46e5','#6366f1'],orange:['#ea580c','#f97316'],green:['#16a34a','#22c55e'],rose:['#e11d48','#f43f5e']};
+const prefKey=()=>'rd_pref_'+(uid||'x');
+function applyPrefs(){const r=document.documentElement;if(PREF.theme==='system')r.removeAttribute('data-theme');else r.setAttribute('data-theme',PREF.theme);const a=ACC[PREF.accent]||ACC.teal;r.style.setProperty('--ac',a[0]);r.style.setProperty('--ac2',a[1]);r.dataset.density=PREF.density;r.dataset.anim=PREF.anim}
+function loadPrefs(){try{PREF={theme:'system',accent:'teal',density:'comfortable',anim:'on',widgets:{},...JSON.parse(localStorage.getItem(prefKey())||'{}')}}catch(e){}applyPrefs();if(typeof dash==='function')dash()}
+function savePrefs(){try{localStorage.setItem(prefKey(),JSON.stringify(PREF))}catch(e){}applyPrefs()}
+function applyCfg(){const m=$('.bt small');if(m)m.textContent=CFG.shopName||'Mobile repair workshop'}
+function setLive(st){const e=$('#live');if(!e)return;e.textContent=st==='ok'?'● Live':st==='err'?'⚠ Offline':'Connecting…';e.className='pill '+(st==='ok'?'paid':st==='err'?'unpaid':'')}
+$('#live').onclick=()=>location.reload();
+function wrapDb(d){const rq=q=>({orderBy:(f,x)=>rq(q.orderBy(f,x)),limit:n=>rq(q.limit(n)),onSnapshot:(ok,er)=>{let un=null,dead=false,t=0;const go=()=>{un=q.onSnapshot(s=>{t=0;setLive('ok');ok(s)},e=>{setLive('err');if(er)er(e);if(!dead&&e&&e.code!=='permission-denied'&&t++<5)setTimeout(go,2000*t)})};go();return()=>{dead=true;if(un)un()}}});return{doc:p=>d.doc(p),collection:p=>{const c=d.collection(p);return(c.orderBy||c.limit)?rq(c):c}}}
+function fail(sel,e){console.error(e);const el=$(sel);if(el)el.innerHTML=`<div class="mu" style="padding:12px">⚠ <span>Could not display this view.</span> ${esc((e&&e.message)||e)} <button onclick="location.reload()"><span>Reload</span></button></div>`}
+function rowTry(f,c){try{return f()}catch(e){console.error(e);return `<div class="c"><div class="m"><b>${esc(c.caseNo||c.id)}</b><div class="mu">⚠ ${esc(e.message)}</div></div></div>`}}
+const guard=(f,sel)=>function(){try{return f.apply(this,arguments)}catch(e){fail(sel,e)}};
+list=guard(list,'#list');swp=guard(swp,'#swd');pay=guard(pay,'#ph');inv=guard(inv,'#ls');cliRender=guard(cliRender,'#cll');
+const renderActive=()=>{({D:dash,C:list,S:swp,P:pay,I:inv,L:cliRender}[ACTIVE]||dash)()};
+const _tab=tab;tab=function(t){ACTIVE=t;_tab(t);renderActive()};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)renderActive()});window.addEventListener('focus',()=>renderActive());
+const DONUT=P=>{const t=P.reduce((a,p)=>a+p.v,0);let off=25;const arcs=t?P.filter(p=>p.v>0).map(p=>{const d=p.v/t*100,e=`<circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="5" style="stroke:${p.c}" stroke-dasharray="${d} ${100-d}" stroke-dashoffset="${off}"></circle>`;off-=d;return e}).join(''):'';return `<svg viewBox="0 0 42 42" class="dn"><circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="5" style="stroke:var(--bd)"></circle>${arcs}<text x="21" y="21.6" text-anchor="middle" dominant-baseline="middle" class="dnt">${t}</text></svg>`};
+const ring=(p,c)=>`<svg viewBox="0 0 42 42" class="dn"><circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="5" style="stroke:var(--bd)"></circle><circle cx="21" cy="21" r="15.9155" fill="none" stroke-width="5" stroke-linecap="round" style="stroke:${c}" stroke-dasharray="${p} ${100-p}" stroke-dashoffset="25"></circle><text x="21" y="21.6" text-anchor="middle" dominant-baseline="middle" class="dnt">${p}%</text></svg>`;
+const leg=P=>`<div class="lgs">${P.map(p=>`<div class="lg"><i style="background:${p.c}"></i><span>${p.l}</span><b>${p.v}</b></div>`).join('')}</div>`;
+const wcard=(t,h)=>`<div class="box wc"><h2><span>${t}</span></h2>${h}</div>`;
+const WG={alerts:{t:'Alerts and notices',r:'all'},pipe:{t:'Phones by stage',r:['admin','manager','reception','technician']},where:{t:'Where are the items?',r:['admin','manager','reception','technician']},ring:{t:'Repair success rate',r:['admin','manager','technician']},trend:{t:'Phones received per month',r:['admin','manager','reception']},fin:{t:'Money overview',r:['admin','manager','cashier']},stock:{t:'Inventory snapshot',r:['admin','manager','technician']},details:{t:'Detailed numbers',r:'all'}};
+const wFor=k=>{const w=WG[k];return w.r==='all'||w.r.includes(role())},wOn=k=>PREF.widgets[k]!==false;
+function alertList(){
+ const r=role(),A=[],P=(l,n,t,g)=>{if(n>0)A.push({l,n,t,g})},cs=cases,isO=['admin','manager'].includes(r),rec=isO||r==='reception',ws=isO||r==='technician',fin=isO||r==='cashier',live=c=>!['delivered','archived'].includes(c.status);
+ const hrs=c=>c.track&&c.track.length?(Date.now()-c.track[c.track.length-1].at)/36e5:0;
+ if(rec||ws){const ms=cs.filter(c=>['to_ws','to_rec'].includes(c.loc)&&hrs(c)>CFG.transitHours);P('bad',ms.length,'Handovers not acknowledged in time: check for missing items',{t:'C',lc:ms.some(c=>c.loc==='to_ws')?'to_ws':'to_rec'})}
+ if(rec){P('warn',cs.filter(c=>c.loc==='to_rec').length,'Phones returned by the workshop: confirm you received them',{t:'C',lc:'to_rec'});const rp=cs.filter(c=>c.status==='repaired'&&c.loc==='reception');P(rp.some(c=>age(c.repairedAt)>CFG.pickupDays)?'bad':'info',rp.length,'Repaired phones ready for customer pickup',{t:'C',st:'repaired',lc:'reception'})}
+ if(r==='reception')P('info',cs.filter(c=>c.loc==='to_ws').length,'Phones sent to the workshop, waiting for their confirmation',{t:'C',lc:'to_ws'});
+ if(ws){P('warn',cs.filter(c=>c.loc==='to_ws').length,'Phones to confirm as received in the workshop',{t:'C',lc:'to_ws'});P('bad',cs.filter(c=>c.status==='waiting'&&c.loc==='workshop'&&age(c.openedAt)>CFG.waitDays).length,'Phones waiting too long to start repair',{t:'C',st:'waiting',lc:'workshop'});P('info',cs.filter(c=>c.status==='repaired'&&c.loc==='workshop').length,'Repaired phones to hand over to reception',{t:'C',st:'repaired',lc:'workshop'})}
+ if(ws||fin)P('warn',cs.filter(c=>c.warranty==='out'&&live(c)&&tot(c)===0).length,'Out-of-warranty cases without a price',{t:'C',wf:'out'});
+ if(rec||fin)P('bad',cs.filter(c=>!live(c)&&due(c)>0).length,'Returned phones with an unpaid balance',{t:r==='reception'?'L':'P'});
+ if(can.swap()){P('info',cs.filter(c=>c.status==='swap_todo').length,'Phones to send to the factory',{t:'S'});P('bad',cs.filter(c=>c.status==='swap_sent'&&age(c.sentAt)>CFG.factoryDays).length,'Swap phones at the factory for too long',{t:'S'})}
+ if(can.inv()){const L=parts.map(p=>({p,s:stk(p)}));P('warn',L.reduce((t,x)=>t+x.s.def,0),'Defective parts to send back to the main warehouse',{t:'I',ist:'def'});const by={};L.forEach(x=>{by[x.p.name]=(by[x.p.name]||0)+x.s.good});P('warn',Object.values(by).filter(v=>v<=CFG.lowStock).length,'Parts running low in stock',{t:'I'})}
+ return A.sort((a,b)=>({bad:0,warn:1,info:2}[a.l]-{bad:0,warn:1,info:2}[b.l]))}
+function alertsHtml(){const A=alertList(),nt=CFG.notice?`<div class="nt">📣 ${esc(CFG.notice)}</div>`:'';return `<div class="box al"><h2>🔔 <span>Alerts and notices</span></h2>${nt}${A.length?A.map(a=>`<div class="ai ${a.l}" data-g="${esc(JSON.stringify(a.g||{}))}"><b>${a.n}</b><span>${a.t}</span><i>›</i></div>`).join(''):'<div class="ai ok"><span>✓ Nothing urgent right now.</span></div>'}</div>`}
+function setWf(v){wf=v;[...$('#wt').children].forEach(b=>b.className=b.dataset.w===v?'on':'')}
+function go(g){if((g.t||'C')==='C'){$('#st').value=g.st||'';$('#lc').value=g.lc||'';setWf(g.wf||'')}if(g.ist!==undefined)$('#ist').value=g.ist;tab(g.t||'C')}
+$('#dash').addEventListener('click',e=>{const a=e.target.closest('.ai[data-g]');if(a)go(JSON.parse(a.dataset.g))});
+$('#dash').addEventListener('toggle',e=>{if(e.target.id==='det')detOpen=e.target.open},true);
+dash=function(){try{
+ dash0();filterDash();const old=$('#dash').innerHTML,W=[],act=cases.filter(c=>!['delivered','archived'].includes(c.status)),ok_=k=>wFor(k)&&wOn(k);
+ if(ok_('alerts'))W.push(alertsHtml());
+ if(ok_('pipe')){const P=[{l:'Waiting for repair',v:act.filter(c=>c.status==='waiting').length,c:'var(--wr)'},{l:'In repair',v:act.filter(c=>c.status==='repairing').length,c:'var(--ac)'},{l:'Ready for pickup',v:act.filter(c=>c.status==='repaired').length,c:'var(--ok)'},{l:'Swap',v:act.filter(c=>c.status.startsWith('swap')).length,c:'var(--or)'}];W.push(wcard('Phones by stage',`<div class="dw">${DONUT(P)}${leg(P)}</div>`))}
+ if(ok_('where')){const C=['var(--ac)','var(--or)','var(--ok)','var(--bad)'],P=['reception','to_ws','workshop','to_rec'].map((k,i)=>({l:LOC[k],v:act.filter(c=>c.loc===k).length,c:C[i]}));W.push(wcard('Where are the items?',`<div class="dw">${DONUT(P)}${leg(P)}</div>`))}
+ if(ok_('ring')){const inM=cases.filter(c=>(c.openedAt||'').startsWith(mo)),dn=inM.filter(c=>c.repairedAt),ok=dn.filter(c=>c.outcome==='success');W.push(wcard('Repair success rate',`<div class="dw">${ring(dn.length?Math.round(ok.length/dn.length*100):0,'var(--ok)')}<div><b>${ok.length}</b>/${dn.length} <span>repairs finished</span><div class="mu">${mo}</div></div></div>`))}
+ if(ok_('trend')){const [y,m]=mo.split('-').map(Number),ms=[...Array(6)].map((_,i)=>new Date(Date.UTC(y,m-1-(5-i),1)).toISOString().slice(0,7)),cn=ms.map(k=>cases.filter(c=>(c.openedAt||'').startsWith(k)).length),mx=Math.max(1,...cn);W.push(wcard('Phones received per month',`<div class="bars">${ms.map((k,i)=>`<div><span>${cn[i]}</span><i style="height:${cn[i]/mx*80}%"></i>${k.slice(2)}</div>`).join('')}</div>`))}
+ if(ok_('fin')&&can.money()){const oc=cases.filter(c=>c.warranty==='out'),ch=oc.reduce((t,c)=>t+tot(c),0),ow=oc.reduce((t,c)=>t+due(c),0);W.push(wcard('Money overview',`<div class="dw">${ring(ch?Math.max(0,Math.round((ch-ow)/ch*100)):0,'var(--ac)')}<div><div class="mu"><span>Collected</span></div><b>${money(ch-ow)}</b><div class="mu" style="margin-top:6px"><span>On hold (owed)</span></div><b class="${ow?'slow':''}">${money(ow)}</b></div></div>`))}
+ if(ok_('stock')&&can.inv()){const L=parts.map(p=>stk(p)),sm=f=>L.reduce((t,x)=>t+f(x),0),P=[{l:'Good',v:sm(x=>x.good),c:'var(--ok)'},{l:'Defective',v:sm(x=>x.def),c:'var(--bad)'},{l:'Consumed',v:sm(x=>x.cons),c:'var(--mu)'}];W.push(wcard('Inventory snapshot',`<div class="dw">${DONUT(P)}${leg(P)}</div>`))}
+ $('#dash').innerHTML=`<div class="wg">${W.join('')}</div>`+(ok_('details')?`<details id="det"${detOpen?' open':''}><summary><span>Detailed numbers</span></summary>${old}</details>`:'')}catch(e){fail('#dash',e)}};
+function adminBox(){return `<div class="box"><h2>Workshop settings (admin)</h2><div class="g2"><div><label>Waiting too long: days</label><input id="a_wd" type="number" min="1" value="${CFG.waitDays}"></div><div><label>Ready for pickup too long: days</label><input id="a_pd" type="number" min="1" value="${CFG.pickupDays}"></div></div><div class="g2"><div><label>Handover not acknowledged: hours</label><input id="a_th" type="number" min="1" value="${CFG.transitHours}"></div><div><label>At factory too long: days</label><input id="a_fd" type="number" min="1" value="${CFG.factoryDays}"></div></div><div class="g2"><div><label>Low stock: units or fewer</label><input id="a_ls" type="number" min="0" value="${CFG.lowStock}"></div><div><label>Currency (shown after amounts)</label><input id="a_cu" value="${esc(CFG.currency)}" maxlength="6"></div></div><label>Shop name (header)</label><input id="a_sn" value="${esc(CFG.shopName)}"><label>Notice for all staff (shown on every dashboard)</label><textarea id="a_nt">${esc(CFG.notice)}</textarea><div class="row"><button class="pri" onclick="saveCfg()">Save settings</button></div></div>`}
+async function saveCfg(){const n=id=>Math.max(0,parseInt(val(id),10)||0),o={waitDays:n('a_wd')||3,pickupDays:n('a_pd')||3,transitHours:n('a_th')||24,factoryDays:n('a_fd')||14,lowStock:n('a_ls'),currency:val('a_cu'),shopName:val('a_sn'),notice:val('a_nt')};
+ try{await db.doc('settings/app').set(o);CFG={...CFG0,...o};applyCfg();audit('settings changed','settings');toast('Settings saved');dash()}catch(e){toast('Failed: '+(e.code||e.message))}}
+function settingsOpen(){const W=Object.entries(WG).filter(([k])=>wFor(k));
+ open_(`<div class="top"><h1><span>Settings</span></h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><div class="box"><h2>My appearance</h2><label>Theme</label><select id="s_th"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select><label>Accent color</label><div class="sw">${Object.entries(ACC).map(([k,v])=>`<button type="button" data-ac="${k}" style="background:${v[0]}" class="${PREF.accent===k?'on':''}" title="${k}"></button>`).join('')}</div><label>Density</label><select id="s_de"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select><label>Animations</label><select id="s_an"><option value="on">On</option><option value="off">Off</option></select><label>Language</label><select id="s_lg"><option value="en">English</option><option value="fr">Français</option><option value="ar">العربية</option></select></div><div class="box"><h2>My dashboard</h2>${W.map(([k,w])=>`<label class="ck"><input type="checkbox" data-w="${k}" ${wOn(k)?'checked':''}><span>${w.t}</span></label>`).join('')}</div>${can.adm()?adminBox():''}`);
+ $('#s_th').value=PREF.theme;$('#s_de').value=PREF.density;$('#s_an').value=PREF.anim;$('#s_lg').value=LANG}
+$('#set').onclick=settingsOpen;
+$('#md').addEventListener('change',e=>{const t=e.target;if(t.id==='s_th'){PREF.theme=t.value;savePrefs()}else if(t.id==='s_de'){PREF.density=t.value;savePrefs()}else if(t.id==='s_an'){PREF.anim=t.value;savePrefs()}else if(t.id==='s_lg')setLang(t.value);else if(t.dataset&&t.dataset.w){PREF.widgets[t.dataset.w]=t.checked;savePrefs();dash()}});
+$('#md').addEventListener('click',e=>{const b=e.target.closest('button[data-ac]');if(b){PREF.accent=b.dataset.ac;savePrefs();[...b.parentNode.children].forEach(x=>x.className=x===b?'on':'')}});
+applyPrefs();
 dash();swp();$('#sh_d').value=today();$('#pm').value=today().slice(0,7);init();setLang(LANG);$('#role').style.cursor='pointer';$('#role').onclick=()=>toast('ID: '+uid);document.body.classList.add('boot');setTimeout(()=>document.body.classList.remove('boot'),1500);
