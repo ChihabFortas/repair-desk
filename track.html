@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track your phone</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1a2230;--mu:#6a7686;--bd:#e6e9ee;--ac:#0d9488;--ok:#16a34a;--wr:#d97706;--bad:#dc2626}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#161a21;--tx:#e8ecf2;--mu:#8b96a5;--bd:#252b35;--ok:#4ade80;--wr:#fbbf24;--bad:#f87171}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.w{max-width:520px;margin:0 auto;padding:16px}.top{display:flex;align-items:center;gap:10px;margin-bottom:14px}h1{font-size:20px;margin:0;flex:1}
+.box{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+input,select,button{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;width:100%}
+button{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600;cursor:pointer;margin-top:8px}select{width:auto}
+.mu{color:var(--mu);font-size:13px}.st{font-size:18px;font-weight:600;margin:6px 0}.pill{display:inline-block;font-size:12px;padding:2px 10px;border-radius:99px;border:1px solid var(--bd);color:var(--mu)}
+.step{display:flex;gap:10px;padding:4px 0;color:var(--mu)}.step.on{color:var(--tx)}.step i{font-style:normal;width:18px}
+.rr{display:flex;justify-content:space-between;gap:8px;padding:3px 0}.tt{border-top:1px solid var(--bd);margin-top:4px;padding-top:6px;font-weight:600}
+.it{cursor:pointer;padding:10px;border:1px solid var(--bd);border-radius:10px;margin-top:8px}.it:hover{border-color:var(--ac)}
+</style></head><body><div class="w">
+<div class="top"><h1>🔧 <span data-t="title"></span></h1><select id="lg"><option value="en">EN</option><option value="fr">FR</option><option value="ar">عربي</option></select></div>
+<div class="box"><input id="q" autocomplete="off"><button id="go"></button></div>
+<div id="out"></div></div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { FIREBASE_CONFIG } from "./firebase-config.js";
+const fs = getFirestore(initializeApp(FIREBASE_CONFIG));
+const $ = s => document.querySelector(s);
+const D = {
+ en:{title:"Track your phone",ph:"Tracking code or phone number",go:"Track",nf:"Not found. Check the tracking code on your receipt.",exp:"Expected return",rcv:"Received on",ret:"Returned on",quote:"Quote",labor:"Labor / service",total:"Total",war:"Covered by warranty",wait:"Waiting for your repair quote",steps:"Progress",pick:"Your devices",upd:"Updated",
+  s_rec:"Received at reception",s_ws:"On its way to the workshop",s_wsr:"Received at the workshop, waiting to start",s_rep:"Being repaired in the workshop",s_done:"Repaired: being handed back to reception",s_ready:"Ready for pickup at reception",s_ret:"Returned to you",s_swap:"Being replaced by the manufacturer",s_swd:"Replacement received",s_bad:"Could not be repaired",
+  sent_ws:"Sent to workshop",recv_ws:"Received in workshop",started:"Repair started",repaired:"Repaired",unrepairable:"Declared unrepairable",handed_rec:"Handed to reception",recv_rec:"Received back at reception",returned:"Returned to customer",received:"Received at reception"},
+ fr:{title:"Suivre votre téléphone",ph:"Code de suivi ou numéro de téléphone",go:"Suivre",nf:"Introuvable. Vérifiez le code de suivi sur votre reçu.",exp:"Retour prévu",rcv:"Reçu le",ret:"Rendu le",quote:"Devis",labor:"Main-d’œuvre / service",total:"Total",war:"Couvert par la garantie",wait:"En attente du devis de réparation",steps:"Progression",pick:"Vos appareils",upd:"Mis à jour",
+  s_rec:"Reçu à la réception",s_ws:"En route vers l’atelier",s_wsr:"Reçu à l’atelier, en attente de démarrage",s_rep:"En cours de réparation à l’atelier",s_done:"Réparé : remise à la réception en cours",s_ready:"Prêt à retirer à la réception",s_ret:"Rendu",s_swap:"En cours de remplacement par le fabricant",s_swd:"Remplacement reçu",s_bad:"Réparation impossible",
+  sent_ws:"Envoyé à l’atelier",recv_ws:"Reçu à l’atelier",started:"Réparation commencée",repaired:"Réparé",unrepairable:"Déclaré irréparable",handed_rec:"Remis à la réception",recv_rec:"Reçu de retour à la réception",returned:"Rendu au client",received:"Reçu à la réception"},
+ ar:{title:"تتبّع هاتفك",ph:"رمز التتبع أو رقم الهاتف",go:"تتبّع",nf:"غير موجود. تحقق من رمز التتبع على إيصالك.",exp:"التسليم المتوقع",rcv:"تاريخ الاستلام",ret:"تاريخ التسليم",quote:"عرض السعر",labor:"الأجور / الخدمة",total:"المجموع",war:"مشمول بالضمان",wait:"بانتظار عرض سعر الإصلاح",steps:"مراحل التقدم",pick:"أجهزتك",upd:"آخر تحديث",
+  s_rec:"تم الاستلام لدى الاستقبال",s_ws:"في الطريق إلى الورشة",s_wsr:"وصل إلى الورشة وينتظر البدء",s_rep:"قيد الإصلاح في الورشة",s_done:"تم الإصلاح: يجري تسليمه للاستقبال",s_ready:"جاهز للاستلام لدى الاستقبال",s_ret:"تم تسليمه لك",s_swap:"قيد الاستبدال لدى الشركة المصنّعة",s_swd:"تم استلام البديل",s_bad:"تعذّر إصلاحه",
+  sent_ws:"أُرسل إلى الورشة",recv_ws:"استُلم في الورشة",started:"بدأ الإصلاح",repaired:"تم الإصلاح",unrepairable:"أُعلن أنه لا يُصلح",handed_rec:"سُلّم إلى الاستقبال",recv_rec:"استُلم عائدًا لدى الاستقبال",returned:"سُلّم للزبون",received:"تم الاستلام لدى الاستقبال"}};
+let L = (localStorage.getItem("trk_lang") || (navigator.language || "en").slice(0, 2)); if (!D[L]) L = "en";
+const T = k => D[L][k] || D.en[k] || k;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = n => (Math.round((+n || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+let last = null, lastData = null;
+function lang() { document.documentElement.lang = L; document.documentElement.dir = L === "ar" ? "rtl" : "ltr"; $("#lg").value = L; document.querySelector('[data-t="title"]').textContent = T("title"); $("#q").placeholder = T("ph"); $("#go").textContent = T("go"); if (lastData) show(lastData); }
+function status(d) {
+  if (d.o === "unrepairable" && ["repaired", "delivered", "archived"].includes(d.st) && d.lc !== "customer") return T("s_bad");
+  if (["delivered", "archived"].includes(d.st)) return T("s_ret");
+  if (d.st === "swap_done") return T("s_swd");
+  if (d.st.startsWith("swap")) return T("s_swap");
+  if (d.st === "repairing") return T("s_rep");
+  if (d.st === "repaired") return d.lc === "reception" ? T("s_ready") : T("s_done");
+  return d.lc === "to_ws" ? T("s_ws") : d.lc === "workshop" ? T("s_wsr") : T("s_rec");
+}
+function show(d) {
+  lastData = d;
+  const sp = d.sp || [];
+  const quote = d.w === "out" ? (d.q ? `<div class="box"><b>${T("quote")}</b><div class="rr"><span>${T("labor")}</span><span>${money(d.q.l)}</span></div>${(d.q.p || []).map(p => `<div class="rr"><span>${esc(p.n)} ×${p.q}</span><span>${money(p.q * p.u)}</span></div>`).join("")}<div class="rr tt"><span>${T("total")}</span><span>${money(d.q.t)}</span></div></div>` : `<div class="box mu">${T("wait")}</div>`) : `<div class="box">✓ ${T("war")}</div>`;
+  $("#out").innerHTML = `<div class="box"><div class="mu">${esc(d.c)}</div><div><b>${esc(d.m)}</b></div><div class="st">${esc(status(d))}</div>
+   <div class="mu">${T("rcv")}: ${esc(d.op)}${d.ex && !d.rt ? " · " + T("exp") + ": " + esc(d.ex) : ""}${d.rt ? " · " + T("ret") + ": " + esc(d.rt) : ""}</div></div>${quote}
+   <div class="box"><b>${T("steps")}</b>${sp.map(e => `<div class="step on"><i>✓</i><span>${esc(T(e.k))} <span class="mu">· ${esc(new Date(e.at).toLocaleString())}</span></span></div>`).join("")}</div>
+   <div class="mu" style="text-align:center">${T("upd")}: ${esc(new Date(d.upd || Date.now()).toLocaleString())}</div>`;
+}
+const nf = () => { lastData = null; $("#out").innerHTML = `<div class="box mu">${T("nf")}</div>`; };
+async function byCode(c) { const s = await getDoc(doc(fs, "track", c.toLowerCase())); return s.exists() ? s.data() : null; }
+async function lookup(v, quiet) {
+  v = (v || "").trim(); if (!v) return; last = v;
+  if (!quiet) $("#out").innerHTML = '<div class="box mu">…</div>';
+  try {
+    if (/^[A-Za-z0-9]{8}$/.test(v)) { const d = await byCode(v); if (d) return show(d); }
+    const dg = v.replace(/\D/g, "");
+    if (dg.length >= 6) {
+      const s = await getDoc(doc(fs, "trackph", dg)); const it = s.exists() ? (s.data().items || []) : [];
+      if (!it.length) return nf();
+      if (it.length === 1) { const d = await byCode(it[0].tk); return d ? show(d) : nf(); }
+      $("#out").innerHTML = `<div class="box"><b>${T("pick")}</b>${it.map(x => `<div class="it" data-tk="${esc(x.tk)}"><div class="mu">${esc(x.c)} · ${esc(x.op)}</div><b>${esc(x.m)}</b><div class="mu">${esc(status({ st: x.st, lc: x.lc }))}</div></div>`).join("")}</div>`;
+      return;
+    }
+    nf();
+  } catch (e) { $("#out").innerHTML = `<div class="box mu">⚠ ${esc(e.code || e.message)}</div>`; }
+}
+$("#go").onclick = () => lookup($("#q").value);
+$("#q").addEventListener("keydown", e => { if (e.key === "Enter") lookup($("#q").value); });
+$("#out").addEventListener("click", e => { const t = e.target.closest("[data-tk]"); if (t) { $("#q").value = t.dataset.tk; lookup(t.dataset.tk); } });
+$("#lg").onchange = e => { L = e.target.value; localStorage.setItem("trk_lang", L); lang(); };
+lang();
+const p = new URLSearchParams(location.search).get("t");
+if (p) { $("#q").value = p; lookup(p); }
+setInterval(() => { if (last && lastData) lookup(last, true); }, 60000);
+</script></body></html>

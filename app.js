@@ -10,7 +10,7 @@ const trk=c=>{const t=c.track||[];return `<div class="box hist"><b>📍 <span>Tr
 const wp=c=>c.warranty==='in'?'<span class="pill" style="color:var(--ok);border-color:var(--ok)">Warranty</span>':c.warranty==='out'?'<span class="pill" style="color:var(--wr);border-color:var(--wr)">Out of warranty</span>':'<span class="pill">Warranty ?</span>';
 const role=()=>owner?'admin':(roles[uid]&&roles[uid].role)||'guest';
 const can={edit:()=>['admin','technician'].includes(role()),arch:()=>['admin','manager'].includes(role()),adm:()=>role()==='admin',swap:()=>['admin','technician','manager'].includes(role()),pay:()=>['admin','manager','cashier','reception'].includes(role()),paytab:()=>['admin','manager','cashier'].includes(role()),cli:()=>['admin','manager','cashier','reception'].includes(role()),money:()=>['admin','manager','cashier','technician','reception'].includes(role()),blocked:()=>['blocked','none'].includes(role()),rec:()=>['admin','reception'].includes(role()),ws:()=>['admin','technician'].includes(role()),inv:()=>['admin','manager','technician'].includes(role())};
-const tot=c=>tot(c)+(+c.partsTotal||0);
+const tot=c=>(+c.charge||0)+(+c.partsTotal||0);
 const money=n=>(Math.round((+n||0)*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+(CFG.currency?' '+CFG.currency:'');
 const paidOf=id=>pays.filter(p=>p.caseId===id).reduce((a,p)=>a+p.amount,0),due=c=>c.warranty==='out'?Math.max(0,Math.round((tot(c)-paidOf(c.id))*100)/100):0;
 const pst=c=>{const ch=tot(c),p=paidOf(c.id);return !ch?'nocharge':p>=ch?'paid':p>0?'partial':'unpaid'},PL={paid:'Paid',partial:'Partial',unpaid:'On hold',nocharge:'No price'};
@@ -26,7 +26,7 @@ async function init(){
  if(!db){$('#off').style.display='block';head();dash();return}
  try{uid=user?await user.id():null;owner=user?await user.isOwner():false}catch(e){}loadPrefs();
  db.collection('roles').onSnapshot(s=>{roles={};s.docs.forEach(d=>roles[d.id]=d.data());head()},()=>{});
- db.collection('cases').onSnapshot(s=>{LOADED.cases=true;raw=s.docs.map(d=>({id:d.id,...d.data()}));cases=raw.map(norm);if(cur){const n=cases.find(x=>x.id===cur.id);if(n)cur=n}list();dash();swp();pay()},e=>toast('Database error: '+e.code));
+ db.collection('cases').onSnapshot(s=>{LOADED.cases=true;raw=s.docs.map(d=>({id:d.id,...d.data()}));cases=raw.map(norm);if(cur){const n=cases.find(x=>x.id===cur.id);if(n)cur=n}list();dash();swp();pay();clearTimeout(window.__sp);window.__sp=setTimeout(syncPublic,1200)},e=>toast('Database error: '+e.code));
  db.collection('payments').onSnapshot(s=>{pays=s.docs.map(d=>({id:d.id,...d.data()}));list();dash();pay()},()=>{});
  db.collection('settings').onSnapshot(s=>{const d=s.docs.find(x=>x.id==='app');CFG={...CFG0,...(d?d.data():{})};applyCfg();dash();swp()},()=>{});
  setTimeout(()=>{if(role()!=='guest'&&!can.blocked())audit('opened app')},2500);
@@ -82,7 +82,7 @@ function open_(h){$('#md').innerHTML=h;$('#ov').classList.add('on')}
 function shut(){if(auditUn){auditUn();auditUn=null}$('#ov').classList.remove('on');cur=null;photo=null;photo2=null;selClient=null}
 $('#new').onclick=()=>{photo=null;open_(`<div class="top"><h1>New case</h1><span class="sp"></span><button onclick="shut()">Cancel</button></div>
 <label>Customer name *</label><input id="f_c" autocomplete="off"><div class="cs" id="cs"></div><div class="mu" id="cc" style="margin-top:4px"></div><div class="g2"><div><label>Customer phone</label><input id="f_p" type="tel" autocomplete="off"></div><div><label>Date received</label><input id="f_d" type="date" value="${today()}"></div></div>
-<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="f_sv" checked style="width:auto"><span>Save as a client</span></label><div class="g2"><div><label>Type</label><select id="f_t"><option value="Phone">Phone</option><option value="Tablet">Tablet</option></select></div><div><label>Brand / model *</label><input id="f_m"></div></div>
+<label>Expected return date</label><input id="f_x" type="date" value="${addDays(today(),CFG.expectDays)}"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="f_sv" checked style="width:auto"><span>Save as a client</span></label><div class="g2"><div><label>Type</label><select id="f_t"><option value="Phone">Phone</option><option value="Tablet">Tablet</option></select></div><div><label>Brand / model *</label><input id="f_m"></div></div>
 <div class="mu" style="margin-top:8px">🛡 <span>Under warranty by default; the repair team can change it.</span></div>
 <label>IMEI / serial</label><div class="sf"><input id="f_i" inputmode="numeric"><button type="button" class="pri" onclick="scan('f_i')">📷 <span>Scan</span></button></div><label>Problem *</label><textarea id="f_pr"></textarea>
 <label>Photo of device (required)</label>${pick('pv')}
@@ -97,8 +97,8 @@ async function create(){
  let cid=selClient||null;
  if(!cid&&can.cli()){const dg=digits(val('f_p')),m=dg&&clients.find(x=>digits(x.phone)===dg);if(m)cid=m.id;else if($('#f_sv').checked){cid=newId('c');try{await db.doc('clients/'+cid).set({name:c,phone:val('f_p'),email:'',notes:'',date:today(),at:Date.now(),by:me()});audit('client created',c)}catch(e){cid=null}}}
  const no='R'+val('f_d').replace(/-/g,'').slice(2)+'-'+Math.floor(100+Math.random()*900);
- const o={caseNo:no,customer:c,clientId:cid||'',phone:val('f_p'),type:$('#f_t').value,warranty:'in',warrantyLog:[],model:m,imei:val('f_i'),problem:p,openedAt:val('f_d')||today(),status:'waiting',loc:'reception',track:[mk('received')],photo:photo,photoDone:'',repairInfo:'',parts:'',cost:'',tech:'',startedAt:'',repairedAt:'',outcome:'',returnDate:'',history:[`${today()} · ${role()} · case opened`]};
- try{await db.doc('cases/'+no.toLowerCase()).set(o);audit('case opened',no);shut();toast('Case '+no+' opened')}catch(e){toast('Could not save: '+(e.code||e.message))}
+ const o={caseNo:no,customer:c,clientId:cid||'',tk:genTk(),expected:val('f_x'),phone:val('f_p'),type:$('#f_t').value,warranty:'in',warrantyLog:[],model:m,imei:val('f_i'),problem:p,openedAt:val('f_d')||today(),status:'waiting',loc:'reception',track:[mk('received')],photo:photo,photoDone:'',repairInfo:'',parts:'',cost:'',tech:'',startedAt:'',repairedAt:'',outcome:'',returnDate:'',history:[`${today()} · ${role()} · case opened`]};
+ try{await db.doc('cases/'+no.toLowerCase()).set(o);audit('case opened',no);shut();toast('Case '+no+' opened');afterCreate({...o,id:no.toLowerCase()})}catch(e){toast('Could not save: '+(e.code||e.message))}
 }
 function detail(id){
  const c=cases.find(x=>x.id===id);if(!c)return;cur=c;const live=['waiting','repairing','repaired','swap_todo','swap_sent','swap_done'].includes(c.status),ed=can.edit()&&live,ro=ed?'':'disabled',s=c.status,sw=can.swap(),pb=payBox(c),loc=c.loc;
@@ -107,9 +107,9 @@ ${c.photo?`<div class="mu">📷 <span>Reception photo</span></div><img class="ph
 <div class="box"><b>${esc(c.customer)}</b> <span class="mu">${esc(c.phone)}${c.email?' · '+esc(c.email):''}</span>${can.cli()&&cliOf(c)?` <a href="#" data-cli="${esc(cliOf(c).id)}">👤 <span>Client</span></a>`:''}<div>${esc(c.type)} · ${esc(c.model)}</div><div class="mu"><span>IMEI / serial:</span> ${esc(c.imei||'—')} · <span>Received</span> ${esc(c.openedAt)}</div><div style="margin-top:8px"><span class="mu">Problem:</span> ${esc(c.problem)}</div>
 <div class="mu" style="margin-top:8px"><span>Started</span> ${esc(c.startedAt||'—')} · <span>Repaired</span> ${esc(c.repairedAt||'—')}${c.outcome?` (<span>${c.outcome==='success'?'success':'unrepairable'}</span>)`:''} · <span>Returned</span> ${esc(c.returnDate||'—')}</div></div>
 ${c.swapAt?`<div class="box"><h2>🔄 Swap case</h2><div class="g2"><div><b>Old phone</b><div>${esc(c.model)}</div><div class="mu">IMEI ${esc(c.imei||'—')}</div></div><div><b>New phone</b><div>${esc(c.newModel||'—')}</div><div class="mu">IMEI ${esc(c.newImei||'—')}</div></div></div><div class="mu" style="margin-top:8px">${c.swapReason?'<span>Reason:</span> '+esc(c.swapReason)+' · ':''}<span>Assigned</span> ${esc(c.swapAt)} · <span>Sent</span> ${esc(c.sentAt||'—')}${c.swapRef?' ('+esc(c.swapRef)+')':''} · <span>Swapped</span> ${esc(c.swappedAt||'—')}</div></div>`:''}
-${trk(c)}${wbox(c)}${pbox(c)}${pb}<div class="box"><label style="margin-top:0">Repair information</label><textarea id="e_r" ${ro}>${esc(c.repairInfo)}</textarea>
+${printBox(c)}${trk(c)}${wbox(c)}${pbox(c)}${pb}<div class="box"><label style="margin-top:0">Repair information</label><textarea id="e_r" ${ro}>${esc(c.repairInfo)}</textarea>
 <div class="g2"><div><label>Parts used</label><input id="e_p" value="${esc(c.parts)}" ${ro}></div><div><label>Cost</label><input id="e_c" value="${esc(c.cost)}" ${ro}></div></div>
-<label>Technician</label><input id="e_t" value="${esc(c.tech)}" ${ro}>
+<label>Technician</label><input id="e_t" value="${esc(c.tech)}" ${ro}><label>Expected return date</label><input id="e_x" type="date" value="${esc(c.expected||'')}" ${ro}>
 ${s==='repairing'&&ed?`<label>Photo after repair (required to finish)</label>${pick('pv2')}`:''}
 ${(s==='repaired'||s==='swap_done')&&can.rec()&&(s==='swap_done'||loc==='reception')?`<label>Return date to customer</label><input id="e_d" type="date" value="${today()}">`:''}
 ${(s==='waiting'||s==='repairing')&&sw?`<label>Swap reason (to move to swap list)</label><input id="e_sr">`:''}
@@ -138,6 +138,56 @@ ${can.adm()?`<button class="dng" onclick="del()">Delete</button>`:''}</div>
 async function finish(o){const p=photo2||cur.photoDone;if(!p)return toast('Upload the after-repair photo first');run({status:'repaired',outcome:o,repairedAt:today(),photoDone:p,__ev:o==='success'?'repaired':'unrepairable'},o==='success'?'repaired':'unrepairable')}
 
 function reopen(){if(cur.loc!=='workshop')return toast('The phone is not in the workshop');run({status:'repairing',repairedAt:'',returnDate:'',outcome:''},'reopened')}
+const addDays=(d,n)=>new Date(new Date(d).getTime()+n*864e5).toISOString().slice(0,10);
+const genTk=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return [...crypto.getRandomValues(new Uint8Array(8))].map(x=>a[x%32]).join('')};
+const hsh=x=>{let h=5381;for(const ch of x)h=((h<<5)+h+ch.charCodeAt(0))|0;return(h>>>0).toString(36)};
+const pubOf=c=>{const out=c.warranty==='out';return{c:c.caseNo,m:c.model,ty:c.type||'',st:c.status,lc:c.loc,op:c.openedAt||'',ex:c.expected||'',rt:c.returnDate||'',w:c.warranty||'',o:c.outcome||'',q:out&&tot(c)>0?{l:+c.charge||0,p:(c.partLines||[]).map(x=>({n:x.name,q:x.qty,u:x.unit})),t:tot(c)}:null,sp:(c.track||[]).map(e=>({k:e.k,at:e.at}))}};
+let syncing=false;
+async function syncPublic(){
+ if(syncing||!db||!(can.edit()||can.rec())||!LOADED.cases)return;syncing=true;
+ try{let n=0;const ph=new Set();
+  for(const c of cases){
+   if(!c.tk){if(n>=15)continue;c.tk=genTk();c._nt=1}
+   const p=pubOf(c),sig=hsh(JSON.stringify(p));if(c.pubSig===sig&&!c._nt)continue;if(n++>=15)break;
+   await db.doc('track/'+c.tk.toLowerCase()).set({...p,upd:Date.now()});await db.doc('cases/'+c.id).update({tk:c.tk,pubSig:sig});
+   const d=digits(c.phone);if(d.length>=6)ph.add(d)}
+  for(const d of ph){const items=cases.filter(c=>digits(c.phone)===d&&c.tk).sort((a,b)=>(b.openedAt||'').localeCompare(a.openedAt||'')).slice(0,20).map(c=>({tk:c.tk,c:c.caseNo,m:c.model,st:c.status,lc:c.loc,op:c.openedAt}));await db.doc('trackph/'+d).set({items,upd:Date.now()})}
+ }catch(e){console.error(e)}
+ syncing=false}
+const RL=()=>CFG.rcpLang||LANG;
+const pl=k=>{const o=LANG;LANG=RL();const r=T(k);LANG=o;return r};
+const fdt=ms=>new Date(ms).toLocaleString();
+const trackUrl=c=>(CFG.trackUrl||(location.origin+location.pathname.replace(/[^/]*$/,'')+'track.html'))+'?t='+(c.tk||'');
+function loadLib(src,test){return new Promise(res=>{if(test())return res(true);const x=document.createElement('script');x.src=src;x.onload=()=>res(true);x.onerror=()=>res(false);document.head.appendChild(x)})}
+const ensureCodes=async()=>{const a=await loadLib('https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js',()=>window.JsBarcode),b=await loadLib('https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',()=>window.qrcode);return a&&b};
+const bc=(t,h)=>{try{const sv=document.createElementNS('http://www.w3.org/2000/svg','svg');JsBarcode(sv,t,{format:'CODE128',displayValue:false,margin:0,height:40,width:2});const w=parseFloat(sv.getAttribute('width')),hh=parseFloat(sv.getAttribute('height'));if(!sv.getAttribute('viewBox'))sv.setAttribute('viewBox','0 0 '+w+' '+hh);sv.setAttribute('preserveAspectRatio','none');sv.removeAttribute('width');sv.removeAttribute('height');sv.style.cssText='width:100%;height:'+h+'mm;display:block';return sv.outerHTML}catch(e){return ''}};
+const qr=(t,mm)=>{try{const q=qrcode(0,'M');q.addData(t);q.make();const n=q.getModuleCount();let d='';for(let r=0;r<n;r++)for(let c=0;c<n;c++)if(q.isDark(r,c))d+='M'+c+' '+r+'h1v1h-1z';return `<svg viewBox="-2 -2 ${n+4} ${n+4}" style="width:${mm}mm;height:${mm}mm;display:block;background:#fff" shape-rendering="crispEdges"><path d="${d}" fill="#000"/></svg>`}catch(e){return ''}};
+const row=(k,v)=>v?`<div class="rr"><span>${pl(k)}</span><b>${esc(v)}</b></div>`:'';
+const hd=(c,t)=>`<div class="rh"><b>${esc(CFG.shopName||pl('Mobile repair workshop'))}</b>${CFG.shopPhone?`<div>${esc(CFG.shopPhone)}</div>`:''}<div class="rt">${pl(t)}</div></div>`;
+const wl=c=>pl(c.warranty==='out'?'Out of warranty':'Under warranty');
+const qrBlock=(c,mm)=>c.tk?`<div class="qc">${qr(trackUrl(c),mm)}<div>${pl('Scan to track your phone')}<br><small>${pl('Tracking code')}</small><br><b class="tkc">${esc(c.tk)}</b></div></div>`:'';
+const money_=(c)=>{const L=c.partLines||[];return row('Labor / service',money(+c.charge||0))+L.map(l=>`<div class="rr"><span>${esc(l.name)} ×${l.qty}</span><b>${money(l.qty*l.unit)}</b></div>`).join('')+`<div class="rr tt"><span>${pl('Total')}</span><b>${money(tot(c))}</b></div>`};
+const docReceipt=c=>`<div class="rc">${hd(c,'Reception receipt')}<div class="cn">${esc(c.caseNo)}</div>${bc(c.caseNo,12)}${row('Date received',c.openedAt)}${row('Expected return',c.expected)}${row('Customer',c.customer)}${row('Phone',c.phone)}${row('Device',(c.type?c.type+' ':'')+c.model)}${row('IMEI / serial',c.imei)}${row('Problem',c.problem)}${row('Warranty status',wl(c))}<hr>${qrBlock(c,26)}<p class="ft">${esc(CFG.receiptNote)||pl('Keep this receipt to collect your phone')}</p></div>`;
+const docQuote=c=>`<div class="rc">${hd(c,'Repair quote')}<div class="cn">${esc(c.caseNo)}</div>${row('Customer',c.customer)}${row('Device',c.model)}${row('IMEI / serial',c.imei)}${row('Problem',c.problem)}${row('Repair notes',c.repairInfo)}${row('Expected return',c.expected)}<hr>${money_(c)}<hr><div class="sg">${pl('Customer signature')}</div><p class="ft">${pl('Quote valid until customer approval')}</p></div>`;
+const docReturn=c=>`<div class="rc">${hd(c,'Return receipt')}<div class="cn">${esc(c.caseNo)}</div>${bc(c.caseNo,10)}${row('Customer',c.customer)}${row('Phone',c.phone)}${row('Device',c.model)}${row('IMEI / serial',c.imei)}${row('Warranty status',wl(c))}<hr>${row('Date received',c.openedAt)}${row('Expected return',c.expected)}${row('Date returned',c.returnDate)}${row('Problem',c.problem)}${row('Repair notes',c.repairInfo)}${row('Result',pl(c.outcome==='unrepairable'?'Unrepairable':'Repaired successfully'))}<hr>${c.warranty==='out'?money_(c)+row('Paid',money(paidOf(c.id)))+row('Balance due',money(due(c))):`<div class="rr"><span>${pl('Covered by warranty')}</span><b>✓</b></div>`}<hr><div class="jr"><b>${pl('Journey in the workshop')}</b>${(c.track||[]).map(e=>`<div>• ${pl(EV[e.k]||e.k)} — ${esc(fdt(e.at))}</div>`).join('')}</div>${qrBlock(c,22)}<p class="ft">${pl('Thank you for your trust')}</p><div class="sg">${pl('Customer signature')}</div></div>`;
+const TS={'35x20':[35,20],'45x35':[45,35],'57x45':[57,45]};
+function docTicket(c,size,n){const w=(TS[size]||TS['45x35'])[0],t=c.warranty==='out'?'OW':'W';let h='';
+ if(size==='35x20')h=`${bc(c.caseNo,8)}<div class="t1">${esc(c.caseNo)} · ${t}</div><div class="t2">${esc(c.model)}</div>`;
+ else if(size==='57x45')h=`<div style="display:flex;gap:1.5mm">${c.tk?qr(trackUrl(c),14):''}<div style="flex:1">${bc(c.caseNo,12)}<div class="t1">${esc(c.caseNo)} · ${t}</div></div></div><div class="t2"><b>${esc(c.model)}</b> · ${esc(c.customer)}</div><div class="t2">IMEI ${esc(c.imei||'—')}</div><div class="t2 pb">${esc(c.problem)}</div><div class="t2">${esc(c.openedAt)}</div>`;
+ else h=`${bc(c.caseNo,11)}<div class="t1">${esc(c.caseNo)} · ${t}</div><div class="t2">${esc(c.model)}</div><div class="t2">${esc(c.customer)}</div><div class="t2">${esc(c.openedAt)}</div>`;
+ return Array.from({length:n},()=>`<div class="tkt" style="width:${w}mm;height:${(TS[size]||TS['45x35'])[1]}mm">${h}</div>`).join('')}
+function doPrint(html,page){const z=$('#pz');$('#pgs').textContent='@page{'+(page?'size:'+page+';':'')+'margin:0}';z.dir=RL()==='ar'?'rtl':'ltr';z.innerHTML=html;document.body.classList.add('printing');const done=()=>{document.body.classList.remove('printing');z.innerHTML='';window.removeEventListener('afterprint',done)};window.addEventListener('afterprint',done);setTimeout(()=>window.print(),250)}
+const getCase=(id,ov)=>({...(cases.find(x=>x.id===id)||{}),...(ov||{})});
+async function printDoc(kind,id,ov){const c=getCase(id,ov);if(!c.caseNo)return toast('Failed');if(!(await ensureCodes()))toast('Barcode library unavailable (internet needed)');doPrint(kind==='quote'?docQuote(c):kind==='return'?docReturn(c):docReceipt(c),'')}
+let tkId=null,tkOv=null;
+function ticketPick(id,ov){tkId=id;tkOv=ov||null;open_(`<div class="top"><h1><span>Ticket</span></h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><div class="box"><label style="margin-top:0">Ticket size</label><select id="t_s"><option value="35x20">35 × 20 mm</option><option value="45x35">45 × 35 mm</option><option value="57x45">57 × 45 mm</option></select><label>Copies</label><select id="t_n"><option>1</option><option>2</option><option>3</option></select><div class="row"><button class="pri" onclick="ticketGo()">🖨 <span>Print</span></button></div></div>`);$('#t_s').value=PREF.tkSize||'45x35';$('#t_n').value=String(PREF.tkN||1)}
+async function ticketGo(){const c=getCase(tkId,tkOv),sz=val('t_s'),n=parseInt(val('t_n'),10)||1;PREF.tkSize=sz;PREF.tkN=n;savePrefs();if(!(await ensureCodes()))toast('Barcode library unavailable (internet needed)');const d=TS[sz];doPrint(docTicket(c,sz,n),d[0]+'mm '+d[1]+'mm')}
+function printBox(c){
+ const rc=can.rec()||role()==='manager',wk=can.ws()||role()==='manager';if(!rc&&!wk)return '';
+ const out=c.warranty==='out',ret=['repaired','delivered','archived'].includes(c.status);
+ return `<div class="box"><h2>🖨 <span>Print</span></h2><div class="row" style="margin-top:0">${rc?`<button onclick="printDoc('receipt','${esc(c.id)}')"><span>Receipt</span></button>`:''}<button onclick="ticketPick('${esc(c.id)}')"><span>Ticket</span></button>${wk?(out?`<button onclick="printDoc('quote','${esc(c.id)}')"><span>Quote</span></button>`:`<button disabled title="Under warranty: no quote needed"><span>Quote</span></button><span class="mu"><span>Under warranty: no quote needed</span></span>`):''}${rc&&ret?`<button onclick="printDoc('return','${esc(c.id)}')"><span>Return receipt</span></button>`:''}</div></div>`}
+async function afterCreate(c){if(await ask('Print the customer receipt?'))await printDoc('receipt',c.id,c);if(await ask('Print the ticket label?'))ticketPick(c.id,c)}
+async function afterReturn(id,d){if(await ask('Print the return receipt?'))printDoc('return',id,{status:'delivered',returnDate:d})}
 function loadScanner(){return new Promise((res,rej)=>{if(window.Html5Qrcode)return res();const x=document.createElement('script');x.src='https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js';x.onload=res;x.onerror=rej;document.head.appendChild(x)})}
 const imeiOf=t=>{const m=String(t).match(/\d{15}/);return m?m[0]:String(t).trim()};
 async function scan(id){
@@ -262,9 +312,9 @@ async function cliPay(id){const k=clients.find(x=>x.id===id),c=cases.find(x=>x.i
  try{await payCase(c,a,src,val('cp_n'),k);audit(src==='account'?'payment from client account':'payment received',c.caseNo,money(a));toast('Cash payment recorded');clientView(id);cliRender()}catch(e){toast('Failed: '+(e.code||e.message))}}
 async function deliver(){const d=val('e_d');if(!d)return toast('Enter the return date');const c=cur,b=can.money()?due(c):0;
  if(b>0&&!(await ask('This customer still owes '+money(b)+'. Return the phone anyway? The balance stays on their account.')))return;
- run({status:'delivered',returnDate:d,loc:'customer',__ev:'returned'},'returned to customer'+(b>0?' (balance '+money(b)+' unpaid)':''))}
+ if(await run({status:'delivered',returnDate:d,loc:'customer',__ev:'returned'},'returned to customer'+(b>0?' (balance '+money(b)+' unpaid)':'')))afterReturn(c.id,d)}
 async function run(ex,t,stay){const c=cur,o={...ex};if(o.__ev){o.track=[...(c.track||[]),mk(o.__ev)];delete o.__ev}
- if($('#e_r')&&!$('#e_r').disabled)Object.assign(o,{repairInfo:val('e_r'),parts:val('e_p'),cost:val('e_c'),tech:val('e_t')});
+ if($('#e_r')&&!$('#e_r').disabled)Object.assign(o,{repairInfo:val('e_r'),parts:val('e_p'),cost:val('e_c'),tech:val('e_t'),...($('#e_x')?{expected:val('e_x')}:{})});
  o.history=[...(c.history||[]),`${today()} · ${role()} · ${t}`];
  try{await db.doc('cases/'+c.id).update(o);audit(t,c.caseNo);toast('Saved');if(!stay)shut();return true}catch(e){toast('Not allowed or failed: '+(e.code||e.message));return false}}
 function swapped(){const m=val('n_m'),i=val('n_i');if(!m)return toast('Enter the new phone model');run({status:'swap_done',swappedAt:today(),newModel:m,newImei:i},'replacement received')}
@@ -776,7 +826,45 @@ Returned phones with an unpaid balance|Téléphones rendus avec solde impayé|ه
 Phones to send to the factory|Téléphones à envoyer à l’usine|هواتف للإرسال إلى المصنع
 Swap phones at the factory for too long|Téléphones en échange en usine depuis trop longtemps|هواتف استبدال لدى المصنع لفترة طويلة
 Defective parts to send back to the main warehouse|Pièces défectueuses à renvoyer à l’entrepôt principal|قطع معيبة للإرجاع إلى المستودع الرئيسي
-Parts running low in stock|Pièces en stock bas|قطع مخزونها منخفض`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
+Parts running low in stock|Pièces en stock bas|قطع مخزونها منخفض
+🖨 Print|🖨 Imprimer|🖨 طباعة
+Print|Imprimer|طباعة
+Receipt|Reçu|إيصال
+Ticket|Étiquette|بطاقة
+Quote|Devis|عرض سعر
+Under warranty: no quote needed|Sous garantie : pas de devis|تحت الضمان: لا حاجة لعرض سعر
+Ticket size|Taille de l’étiquette|حجم البطاقة
+Copies|Copies|النسخ
+Print the customer receipt?|Imprimer le reçu client ?|طباعة إيصال الزبون؟
+Print the ticket label?|Imprimer l’étiquette ?|طباعة البطاقة؟
+Print the return receipt?|Imprimer le reçu de restitution ?|طباعة إيصال التسليم؟
+Barcode library unavailable (internet needed)|Bibliothèque de code-barres indisponible (internet requis)|مكتبة الرمز الشريطي غير متاحة (يلزم الإنترنت)
+Expected return date|Date de retour prévue|تاريخ التسليم المتوقع
+Reception receipt|Reçu de réception|إيصال الاستلام
+Repair quote|Devis de réparation|عرض سعر الإصلاح
+Return receipt|Reçu de restitution|إيصال التسليم
+Expected return|Retour prévu|التسليم المتوقع
+Customer|Client|الزبون
+Problem|Problème|العطل
+Tracking code|Code de suivi|رمز التتبع
+Scan to track your phone|Scannez pour suivre votre téléphone|امسح لتتبّع هاتفك
+Labor / service|Main-d’œuvre / service|الأجور / الخدمة
+Balance due|Reste à payer|المتبقي للدفع
+Covered by warranty|Couvert par la garantie|مشمول بالضمان
+Repair notes|Notes de réparation|ملاحظات الإصلاح
+Repaired successfully|Réparé avec succès|تم الإصلاح بنجاح
+Date returned|Date de restitution|تاريخ التسليم
+Journey in the workshop|Parcours à l’atelier|مسار الجهاز في الورشة
+Customer signature|Signature du client|توقيع الزبون
+Quote valid until customer approval|Devis valable après accord du client|العرض صالح بعد موافقة الزبون
+Thank you for your trust|Merci de votre confiance|شكرًا لثقتكم
+Keep this receipt to collect your phone|Conservez ce reçu pour récupérer votre téléphone|احتفظ بهذا الإيصال لاستلام هاتفك
+Shop phone (on receipts)|Téléphone de l’atelier (sur les reçus)|هاتف الورشة (على الإيصالات)
+Expected return: days after reception|Retour prévu : jours après réception|التسليم المتوقع: أيام بعد الاستلام
+Receipt footer note|Note de bas de reçu|ملاحظة أسفل الإيصال
+Receipt language|Langue des reçus|لغة الإيصالات
+Follow app language|Langue de l’application|لغة التطبيق
+Tracking page address (optional)|Adresse de la page de suivi (facultatif)|عنوان صفحة التتبع (اختياري)`.split('\n').forEach(l=>{const [e,f,a]=l.split('|');DICT.fr[e]=f;DICT.ar[e]=a});
 const PAT=[[/^Client account \((.+)\)$/,(m,l)=>(l==='fr'?'Compte client (':'حساب العميل (')+m[1]+')'],[/^👤 Linked to client: (.+)$/,(m,l)=>(l==='fr'?'👤 Lié au client : ':'👤 مرتبط بالعميل: ')+m[1]],[/^Only (\d+) in stock$/,(m,l)=>l==='fr'?'Seulement '+m[1]+' en stock':'المتوفر '+m[1]+' فقط'],[/^([\d.]+) d$/,(m,l)=>m[1]+' '+(l==='fr'?'j':'ي')],
 [/^(Under warranty|Out of warranty) \((\d+)\)$/,(m,l)=>DICT[l][m[1]]+' ('+m[2]+')'],
 [/^(\d+) of (\d+) cases$/,(m,l)=>l==='fr'?m[1]+' sur '+m[2]+' dossiers':m[1]+' من '+m[2]+' ملف'],
@@ -792,13 +880,13 @@ const PAT=[[/^Client account \((.+)\)$/,(m,l)=>(l==='fr'?'Compte client (':'حس
 let LANG='en';try{LANG=localStorage.getItem('rd_lang')||'en'}catch(e){}
 const ORIG=new WeakMap();
 function T(x){if(LANG==='en')return x;const k=x.trim();if(!k)return x;let r=DICT[LANG][k];if(r==null)for(const [re,fn] of PAT){const m=k.match(re);if(m){r=fn(m,LANG);break}}return r==null?x:x.replace(k,()=>r)}
-function tx(n){const p=n.parentNode&&n.parentNode.nodeName;if(p==='SCRIPT'||p==='STYLE'||p==='TEXTAREA')return;if(!ORIG.has(n))ORIG.set(n,n.nodeValue);const t=T(ORIG.get(n));if(t!==n.nodeValue)n.nodeValue=t}
+function tx(n){const p=n.parentNode&&n.parentNode.nodeName;if(p==='SCRIPT'||p==='STYLE'||p==='TEXTAREA'||(n.parentNode&&n.parentNode.closest&&n.parentNode.closest('[data-nt]')))return;if(!ORIG.has(n))ORIG.set(n,n.nodeValue);const t=T(ORIG.get(n));if(t!==n.nodeValue)n.nodeValue=t}
 function el(n){for(const a of ['placeholder','title']){if(n.hasAttribute&&n.hasAttribute(a)){const k='data-o-'+a;if(!n.hasAttribute(k))n.setAttribute(k,n.getAttribute(a));const t=T(n.getAttribute(k));if(t!==n.getAttribute(a))n.setAttribute(a,t)}}}
 function walk(root){el(root);const w=document.createTreeWalker(root,5);let n;while(n=w.nextNode()){n.nodeType===3?tx(n):el(n)}}
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===3)tx(n);else if(n.nodeType===1)walk(n)}))).observe(document.body,{childList:true,subtree:true});
 function setLang(l){LANG=l;try{localStorage.setItem('rd_lang',l)}catch(e){}document.documentElement.lang=l;document.documentElement.dir=l==='ar'?'rtl':'ltr';$('#lang').value=l;walk(document.body)}
 $('#lang').onchange=e=>setLang(e.target.value);
-const CFG0={waitDays:3,pickupDays:3,transitHours:24,factoryDays:14,lowStock:2,currency:'',shopName:'',notice:''};
+const CFG0={waitDays:3,pickupDays:3,transitHours:24,factoryDays:14,lowStock:2,currency:'',shopName:'',notice:'',shopPhone:'',expectDays:7,receiptNote:'',rcpLang:'',trackUrl:''};
 let CFG={...CFG0},PREF={theme:'system',accent:'teal',density:'comfortable',anim:'on',widgets:{}},detOpen=false,ACTIVE='D';
 const LOADED={cases:false};
 const ACC={teal:['#0d9488','#14b8a6'],blue:['#2563eb','#3b82f6'],indigo:['#4f46e5','#6366f1'],orange:['#ea580c','#f97316'],green:['#16a34a','#22c55e'],rose:['#e11d48','#f43f5e']};
@@ -850,12 +938,12 @@ dash=function(){try{
  if(ok_('fin')&&can.money()){const oc=cases.filter(c=>c.warranty==='out'),ch=oc.reduce((t,c)=>t+tot(c),0),ow=oc.reduce((t,c)=>t+due(c),0);W.push(wcard('Money overview',`<div class="dw">${ring(ch?Math.max(0,Math.round((ch-ow)/ch*100)):0,'var(--ac)')}<div><div class="mu"><span>Collected</span></div><b>${money(ch-ow)}</b><div class="mu" style="margin-top:6px"><span>On hold (owed)</span></div><b class="${ow?'slow':''}">${money(ow)}</b></div></div>`))}
  if(ok_('stock')&&can.inv()){const L=parts.map(p=>stk(p)),sm=f=>L.reduce((t,x)=>t+f(x),0),P=[{l:'Good',v:sm(x=>x.good),c:'var(--ok)'},{l:'Defective',v:sm(x=>x.def),c:'var(--bad)'},{l:'Consumed',v:sm(x=>x.cons),c:'var(--mu)'}];W.push(wcard('Inventory snapshot',`<div class="dw">${DONUT(P)}${leg(P)}</div>`))}
  $('#dash').innerHTML=`<div class="wg">${W.join('')}</div>`+(ok_('details')?`<details id="det"${detOpen?' open':''}><summary><span>Detailed numbers</span></summary>${old}</details>`:'')}catch(e){fail('#dash',e)}};
-function adminBox(){return `<div class="box"><h2>Workshop settings (admin)</h2><div class="g2"><div><label>Waiting too long: days</label><input id="a_wd" type="number" min="1" value="${CFG.waitDays}"></div><div><label>Ready for pickup too long: days</label><input id="a_pd" type="number" min="1" value="${CFG.pickupDays}"></div></div><div class="g2"><div><label>Handover not acknowledged: hours</label><input id="a_th" type="number" min="1" value="${CFG.transitHours}"></div><div><label>At factory too long: days</label><input id="a_fd" type="number" min="1" value="${CFG.factoryDays}"></div></div><div class="g2"><div><label>Low stock: units or fewer</label><input id="a_ls" type="number" min="0" value="${CFG.lowStock}"></div><div><label>Currency (shown after amounts)</label><input id="a_cu" value="${esc(CFG.currency)}" maxlength="6"></div></div><label>Shop name (header)</label><input id="a_sn" value="${esc(CFG.shopName)}"><label>Notice for all staff (shown on every dashboard)</label><textarea id="a_nt">${esc(CFG.notice)}</textarea><div class="row"><button class="pri" onclick="saveCfg()">Save settings</button></div></div>`}
-async function saveCfg(){const n=id=>Math.max(0,parseInt(val(id),10)||0),o={waitDays:n('a_wd')||3,pickupDays:n('a_pd')||3,transitHours:n('a_th')||24,factoryDays:n('a_fd')||14,lowStock:n('a_ls'),currency:val('a_cu'),shopName:val('a_sn'),notice:val('a_nt')};
+function adminBox(){return `<div class="box"><h2>Workshop settings (admin)</h2><div class="g2"><div><label>Waiting too long: days</label><input id="a_wd" type="number" min="1" value="${CFG.waitDays}"></div><div><label>Ready for pickup too long: days</label><input id="a_pd" type="number" min="1" value="${CFG.pickupDays}"></div></div><div class="g2"><div><label>Handover not acknowledged: hours</label><input id="a_th" type="number" min="1" value="${CFG.transitHours}"></div><div><label>At factory too long: days</label><input id="a_fd" type="number" min="1" value="${CFG.factoryDays}"></div></div><div class="g2"><div><label>Low stock: units or fewer</label><input id="a_ls" type="number" min="0" value="${CFG.lowStock}"></div><div><label>Currency (shown after amounts)</label><input id="a_cu" value="${esc(CFG.currency)}" maxlength="6"></div></div><label>Shop name (header)</label><input id="a_sn" value="${esc(CFG.shopName)}"><div class="g2"><div><label>Shop phone (on receipts)</label><input id="a_sp" value="${esc(CFG.shopPhone)}"></div><div><label>Expected return: days after reception</label><input id="a_ed" type="number" min="1" value="${CFG.expectDays}"></div></div><label>Receipt footer note</label><input id="a_rn" value="${esc(CFG.receiptNote)}"><div class="g2"><div><label>Receipt language</label><select id="a_rl"><option value="">Follow app language</option><option value="en">English</option><option value="fr">Français</option><option value="ar">العربية</option></select></div><div><label>Tracking page address (optional)</label><input id="a_tu" placeholder="https://…/track.html" value="${esc(CFG.trackUrl)}"></div></div><label>Notice for all staff (shown on every dashboard)</label><textarea id="a_nt">${esc(CFG.notice)}</textarea><div class="row"><button class="pri" onclick="saveCfg()">Save settings</button></div></div>`}
+async function saveCfg(){const n=id=>Math.max(0,parseInt(val(id),10)||0),o={waitDays:n('a_wd')||3,pickupDays:n('a_pd')||3,transitHours:n('a_th')||24,factoryDays:n('a_fd')||14,lowStock:n('a_ls'),currency:val('a_cu'),shopName:val('a_sn'),notice:val('a_nt'),shopPhone:val('a_sp'),expectDays:n('a_ed')||7,receiptNote:val('a_rn'),rcpLang:val('a_rl'),trackUrl:val('a_tu')};
  try{await db.doc('settings/app').set(o);CFG={...CFG0,...o};applyCfg();audit('settings changed','settings');toast('Settings saved');dash()}catch(e){toast('Failed: '+(e.code||e.message))}}
 function settingsOpen(){const W=Object.entries(WG).filter(([k])=>wFor(k));
  open_(`<div class="top"><h1><span>Settings</span></h1><span class="sp"></span><button onclick="shut()">Close ✕</button></div><div class="box"><h2>My appearance</h2><label>Theme</label><select id="s_th"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select><label>Accent color</label><div class="sw">${Object.entries(ACC).map(([k,v])=>`<button type="button" data-ac="${k}" style="background:${v[0]}" class="${PREF.accent===k?'on':''}" title="${k}"></button>`).join('')}</div><label>Density</label><select id="s_de"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select><label>Animations</label><select id="s_an"><option value="on">On</option><option value="off">Off</option></select><label>Language</label><select id="s_lg"><option value="en">English</option><option value="fr">Français</option><option value="ar">العربية</option></select></div><div class="box"><h2>My dashboard</h2>${W.map(([k,w])=>`<label class="ck"><input type="checkbox" data-w="${k}" ${wOn(k)?'checked':''}><span>${w.t}</span></label>`).join('')}</div>${can.adm()?adminBox():''}`);
- $('#s_th').value=PREF.theme;$('#s_de').value=PREF.density;$('#s_an').value=PREF.anim;$('#s_lg').value=LANG}
+ $('#s_th').value=PREF.theme;$('#s_de').value=PREF.density;$('#s_an').value=PREF.anim;$('#s_lg').value=LANG;if($('#a_rl'))$('#a_rl').value=CFG.rcpLang||''}
 $('#set').onclick=settingsOpen;
 $('#md').addEventListener('change',e=>{const t=e.target;if(t.id==='s_th'){PREF.theme=t.value;savePrefs()}else if(t.id==='s_de'){PREF.density=t.value;savePrefs()}else if(t.id==='s_an'){PREF.anim=t.value;savePrefs()}else if(t.id==='s_lg')setLang(t.value);else if(t.dataset&&t.dataset.w){PREF.widgets[t.dataset.w]=t.checked;savePrefs();dash()}});
 $('#md').addEventListener('click',e=>{const b=e.target.closest('button[data-ac]');if(b){PREF.accent=b.dataset.ac;savePrefs();[...b.parentNode.children].forEach(x=>x.className=x===b?'on':'')}});

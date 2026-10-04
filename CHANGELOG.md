@@ -1,4 +1,6 @@
 # Changelog
+- v16 (rules changed): receipts and tickets - reception receipt (80 mm), workshop quote (out of warranty only), return receipt, barcode tickets 35x20 / 45x35 / 57x45 mm, QR code to a customer tracking page (track.html), expected return date, scan a ticket barcode in the search box. See PRINTING.md.
+- v15 (no rules change): FIXED "Maximum call stack size exceeded" on out-of-warranty cases (price total function called itself). Cases and dashboard load again. Also replace firebase-adapter.js so the footer shows the right version.
 - v14 (rules changed): reliable data loading (live status badge, auto-reconnect, per-view error isolation, re-render on tab switch), subtler theme, Settings (personal theme / accent / density / dashboard widgets; admin thresholds, currency, shop name, staff notice), visual dashboard with alerts and charts.
 - v13 (rules changed): Clients tab - client records, autocomplete + link on new cases, case history per client, prepaid account (top up / pay a case / withdraw). Reception, cashier, manager, admin only; technicians excluded.
 - v12 (rules changed): Inventory tab - goods receiving notes, part lots (good / defective / consumed / sent back), parts used on out-of-warranty repairs add to the repair price. Admin, manager and technician only.

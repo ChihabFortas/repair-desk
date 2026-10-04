@@ -37,6 +37,8 @@ service cloud.firestore {
         && (!touches(['warranty','warrantyLog']) || myRole() in ['admin','technician'])
         && (!touches(['photo','photoDone','repairInfo','parts','cost','tech','startedAt','repairedAt','outcome']) || myRole() in ['admin','technician'])
         && (!touches(['charge']) || myRole() in ['admin','manager','cashier','technician'])
+        && (!touches(['expected']) || myRole() in ['admin','technician'])
+        && (!touches(['tk','pubSig']) || myRole() in ['admin','reception','technician'])
         && (!touches(['clientId']) || myRole() in ['admin','reception','manager'])
         && (!touches(['partLines','partsTotal']) || invRole())
         && (!touches(['loc','track','returnDate']) || myRole() in ['admin','reception','technician'])
@@ -73,6 +75,18 @@ service cloud.firestore {
       allow read: if cliRole();
       allow create: if cliRole();
       allow update, delete: if false;                                         // append-only ledger
+    }
+
+    // ---------- public tracking pages (no personal data; customers read by tracking code or phone) ----------
+    match /track/{codeId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if staff();
+    }
+    match /trackph/{phoneId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if staff();
     }
 
     // ---------- shop settings (thresholds, currency, notice): everyone reads, admin writes ----------

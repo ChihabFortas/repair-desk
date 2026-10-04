@@ -21,6 +21,12 @@ Four collections. No indexes needed.
 | track | array | `{k,at(ms),by,role}` custody events |
 | history | array | text log lines |
 
+## Tracking (public, read-only for customers)
+- `track/{trackingCode}` (no personal data): `c (case no), m (model), ty, st (status), lc (location), op, ex, rt, w, o, q {l, p[], t} (quote), sp [{k, at}] (timeline), upd`. Kept in sync automatically by staff devices.
+- `trackph/{phoneDigits}`: `items [{tk, c, m, st, lc, op}], upd` so a customer can look up by phone number.
+- Cases gain `tk` (random 8-character tracking code), `expected` (expected return date) and `pubSig` (sync marker).
+- Customers can only read one document at a time and cannot list the collections; the tracking code is the secret.
+
 ## `settings/app` (admin writes, everyone reads)
 `waitDays, pickupDays, transitHours, factoryDays, lowStock, currency, shopName, notice`. Personal preferences (theme, accent, dashboard widgets) are stored per user in the browser.
 
